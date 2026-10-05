@@ -1,0 +1,32 @@
+## Interface: 16001
+## Title: PoisonUp (Forever)
+## Author: Daeler
+## Version: 1.9.12
+## SavedVariables: PoisonUpDB_Forever
+## SavedVariablesPerCharacter: PoisonUpCharDB_Forever
+## IconTexture: Interface\AddOns\PoisonUp_Forever\data\poisonup_icon
+## Category: Daeler Addons
+## X-Category: Combat
+## Notes: Rogue & Warrior: apply poisons, sharpening stones and oils to your weapons in one click, and get warned before they run out.
+## Notes-frFR: Voleur & Guerrier : applique poisons, pierres a aiguiser et huiles sur vos armes en un clic, et previent avant qu'ils expirent.
+
+# --- Textes -----------------------------------------------------------------
+# En premier : plusieurs fichiers capturent NS.L des leur chargement.
+locale\Locale.lua
+
+# --- Socle : compatibilite du client, donnees, modele -----------------------
+core\Compat.lua
+core\Poisons.lua
+core\Core.lua
+
+# --- Interface --------------------------------------------------------------
+# Frames.xml declare les boutons securises. Il doit etre charge avant le Lua
+# qui les habille, et Widgets.lua avant la fenetre d'options qui s'en sert.
+ui\Widgets.lua
+ui\Frames.xml
+ui\Menu.lua
+ui\Button.lua
+ui\Quick.lua
+ui\Aura.lua
+ui\Indicators.lua
+ui\Options.lua

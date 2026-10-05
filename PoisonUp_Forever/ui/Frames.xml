@@ -1,0 +1,99 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/">
+<!--
+  Frames.xml - PoisonUp (Forever) - par Daeler
+
+  Les boutons securises sont declares ICI et non crees par CreateFrame, comme
+  le faisait la version TBC avec ses templates XML.
+
+  Deux pieges de ce client a garder en tete :
+
+  1. Un bouton securise n'agit qu'a l'ENFONCEMENT du bouton de souris.
+     Enregistre en RegisterForClicks("AnyUp") seul, il recoit le clic mais son
+     gestionnaire ressort sans rien faire et sans message. Voir Core.lua.
+
+  2. Les snippets SecureHandler ne fonctionnent PAS sur ce client :
+     l'environnement restreint ne sait pas les compiler (loadstring_untainted
+     vaut nil) et leve une erreur des le premier clic. La barre ne peut donc
+     pas s'ouvrir en combat, faute de mecanisme autorise.
+
+  Les boutons de poison restent enfants de la barre : un seul Show suffit a
+  les afficher tous.
+-->
+  <Button name="PoisonUpForeverItemTemplate" virtual="true" hidden="true"
+          inherits="SecureActionButtonTemplate">
+    <Size x="32" y="32"/>
+  </Button>
+
+  <Frame name="PoisonUpForever_MenuFrame" parent="UIParent" hidden="true"
+         frameStrata="DIALOG">
+    <Size x="1" y="1"/>
+    <Anchors>
+      <Anchor point="CENTER"/>
+    </Anchors>
+    <Frames>
+      <Button name="PoisonUpForever_Item1" inherits="PoisonUpForeverItemTemplate"/>
+      <Button name="PoisonUpForever_Item2" inherits="PoisonUpForeverItemTemplate"/>
+      <Button name="PoisonUpForever_Item3" inherits="PoisonUpForeverItemTemplate"/>
+      <Button name="PoisonUpForever_Item4" inherits="PoisonUpForeverItemTemplate"/>
+      <Button name="PoisonUpForever_Item5" inherits="PoisonUpForeverItemTemplate"/>
+      <Button name="PoisonUpForever_Item6" inherits="PoisonUpForeverItemTemplate"/>
+      <Button name="PoisonUpForever_Item7" inherits="PoisonUpForeverItemTemplate"/>
+      <Button name="PoisonUpForever_Item8" inherits="PoisonUpForeverItemTemplate"/>
+      <Button name="PoisonUpForever_Item9" inherits="PoisonUpForeverItemTemplate"/>
+      <Button name="PoisonUpForever_Item10" inherits="PoisonUpForeverItemTemplate"/>
+      <Button name="PoisonUpForever_Item11" inherits="PoisonUpForeverItemTemplate"/>
+      <Button name="PoisonUpForever_Item12" inherits="PoisonUpForeverItemTemplate"/>
+      <Button name="PoisonUpForever_Item13" inherits="PoisonUpForeverItemTemplate"/>
+      <Button name="PoisonUpForever_Item14" inherits="PoisonUpForeverItemTemplate"/>
+      <Button name="PoisonUpForever_Item15" inherits="PoisonUpForeverItemTemplate"/>
+      <Button name="PoisonUpForever_Item16" inherits="PoisonUpForeverItemTemplate"/>
+      <Button name="PoisonUpForever_Item17" inherits="PoisonUpForeverItemTemplate"/>
+      <Button name="PoisonUpForever_Item18" inherits="PoisonUpForeverItemTemplate"/>
+      <Button name="PoisonUpForever_Item19" inherits="PoisonUpForeverItemTemplate"/>
+      <Button name="PoisonUpForever_Item20" inherits="PoisonUpForeverItemTemplate"/>
+      <Button name="PoisonUpForever_Item21" inherits="PoisonUpForeverItemTemplate"/>
+      <Button name="PoisonUpForever_Item22" inherits="PoisonUpForeverItemTemplate"/>
+      <Button name="PoisonUpForever_Item23" inherits="PoisonUpForeverItemTemplate"/>
+      <Button name="PoisonUpForever_Item24" inherits="PoisonUpForeverItemTemplate"/>
+      <Button name="PoisonUpForever_Item25" inherits="PoisonUpForeverItemTemplate"/>
+      <Button name="PoisonUpForever_Item26" inherits="PoisonUpForeverItemTemplate"/>
+      <Button name="PoisonUpForever_Item27" inherits="PoisonUpForeverItemTemplate"/>
+      <Button name="PoisonUpForever_Item28" inherits="PoisonUpForeverItemTemplate"/>
+      <Button name="PoisonUpForever_Item29" inherits="PoisonUpForeverItemTemplate"/>
+      <Button name="PoisonUpForever_Item30" inherits="PoisonUpForeverItemTemplate"/>
+      <Button name="PoisonUpForever_Item31" inherits="PoisonUpForeverItemTemplate"/>
+      <Button name="PoisonUpForever_Item32" inherits="PoisonUpForeverItemTemplate"/>
+    </Frames>
+  </Frame>
+
+  <!-- Bouton libre : ouvre et ferme la barre de poisons. -->
+  <Button name="PoisonUpForever_Button" parent="UIParent"
+          inherits="SecureActionButtonTemplate"
+          hidden="true" movable="true" frameStrata="MEDIUM"
+          clampedToScreen="true">
+    <Size x="32" y="32"/>
+    <Anchors>
+      <Anchor point="CENTER" x="0" y="-120"/>
+    </Anchors>
+  </Button>
+
+  <!-- Bouton de mini-carte : meme role, accroche a la mini-carte. -->
+  <Button name="PoisonUpForever_MinimapButton" parent="Minimap"
+          inherits="SecureActionButtonTemplate"
+          hidden="true" frameStrata="MEDIUM">
+    <Size x="31" y="31"/>
+    <Anchors>
+      <Anchor point="CENTER"/>
+    </Anchors>
+  </Button>
+
+  <!-- Bouton rapide : applique un set de poisons selon le modificateur tenu. -->
+  <Button name="PoisonUpForever_QuickButton" parent="UIParent"
+          inherits="SecureActionButtonTemplate" hidden="true" movable="true"
+          frameStrata="MEDIUM" clampedToScreen="true">
+    <Size x="36" y="36"/>
+    <Anchors>
+      <Anchor point="CENTER" x="0" y="-170"/>
+    </Anchors>
+  </Button>
+</Ui>
