@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="icon.png" alt="PoisonUp Forever" width="128">
+</p>
+
 <h1 align="center">PoisonUp (Forever)</h1>
 
 <p align="center">
