@@ -208,6 +208,12 @@ function NS.UpdateIndicatorLayout()
     square:SetSize(size, size)
     local badge = math.max(10, math.floor(size * 0.35))
     square.badge:SetSize(badge, badge)
+    -- Badge pierre : l'huile pour les lanceurs de sorts (NS.ICON est déjà
+    -- l'huile de sorcier pour eux, voir NS.Boot).
+    if square.hand.stone then
+      local caster = not NS.UsesPoisons() and not NS.IsWarrior()
+      square.badge:SetTexture(caster and NS.ICON or NS.STONE_ICON)
+    end
     square:ClearAllPoints()
     if NS.IndicatorEnabled(square.hand) then
       square:SetPoint("TOPLEFT", group, "TOPLEFT", count * (size + gap), 0)
