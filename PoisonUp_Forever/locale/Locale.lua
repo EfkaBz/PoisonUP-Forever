@@ -1,6 +1,6 @@
 -- Locale.lua - PoisonUp (Forever) - par Daeler
--- Deux langues seulement : français (par défaut du client visé) et anglais en
--- repli. Les noms d'objets ne sont jamais traduits ici : ils viennent du client
+-- Anglais, français, allemand, espagnol, italien, portugais et russe. La
+-- langue du client par défaut, ou celle choisie dans les options. Les noms d'objets ne sont jamais traduits ici : ils viennent du client
 -- via les itemID, ce qui évite toute la table de traduction de l'addon TBC.
 
 local ADDON_NAME, NS = ...
@@ -86,6 +86,9 @@ local enUS = {
   POS_BOTTOM           = "Bottom",
   POS_BOTTOMRIGHT      = "Bottom right",
   MENU_SPACING         = "Spacing between buttons",
+  MENU_VERTICAL        = "Vertical menu (icons stacked)",
+  ALL_UNLOCKED         = "Everything unlocked: drag the buttons, squares and alert frame to move them.",
+  ALL_LOCKED           = "Everything locked.",
   MENU_TOOLTIP         = "Tooltip:",
   MENU_TOOLTIP_FULL    = "Full",
   MENU_TOOLTIP_NAME    = "Name only",
@@ -109,11 +112,16 @@ local enUS = {
   IND_SECTION          = "Weapon squares:",
   IND_SHOW             = "Show a square per weapon that needs poison",
   IND_STONES           = "Also show squares for stones / oils",
+  IND_BOUNCE           = "Bounce the squares when a poison is about to expire",
+  IND_OOC              = "Show unpoisoned / unsharpened weapons out of combat too",
   IND_ALWAYS           = "Always show the squares (in and out of combat)",
   IND_WINDFURY         = "Show a Windfury Totem square (shaman in party)",
   IND_LOCK             = "Lock the squares",
   IND_SIZE             = "Square size",
   IND_FADE             = "Opacity when the poison is about to expire",
+  IND_SHOW_CHARGES     = "Show the remaining charges on the squares",
+  IND_WARN_CHARGES     = "Show the square (faded) at this many charges or fewer",
+  IND_CHARGES_OFF      = "Off",
   IND_HINT             = "Drag to move - lock them again in the Options tab",
 
   PRESET_DEFAULT       = "Default",
@@ -205,6 +213,9 @@ local frFR = {
   POS_BOTTOM           = "En bas",
   POS_BOTTOMRIGHT      = "En bas à droite",
   MENU_SPACING         = "Espacement entre les boutons",
+  MENU_VERTICAL        = "Menu vertical (icônes empilées)",
+  ALL_UNLOCKED         = "Tout est déverrouillé : glissez les boutons, carrés et cadre d'alerte pour les déplacer.",
+  ALL_LOCKED           = "Tout est verrouillé.",
   MENU_TOOLTIP         = "Bulle d'aide :",
   MENU_TOOLTIP_FULL    = "Entière",
   MENU_TOOLTIP_NAME    = "Nom uniquement",
@@ -228,11 +239,16 @@ local frFR = {
   IND_SECTION          = "Carrés d'arme :",
   IND_SHOW             = "Afficher un carré par arme à réempoisonner",
   IND_STONES           = "Afficher aussi les carrés pierres / huiles",
+  IND_BOUNCE           = "Faire rebondir les carrés quand un poison va expirer",
+  IND_OOC              = "Afficher aussi hors combat les armes sans poison / sans pierre",
   IND_ALWAYS           = "Toujours afficher les carrés (en combat et hors combat)",
   IND_WINDFURY         = "Afficher un carré Totem Furie-des-vents (shaman groupé)",
   IND_LOCK             = "Bloquer les carrés",
   IND_SIZE             = "Taille des carrés",
   IND_FADE             = "Opacité quand le poison va bientôt expirer",
+  IND_SHOW_CHARGES     = "Afficher les charges restantes sur les carrés",
+  IND_WARN_CHARGES     = "Afficher le carré (estompé) à ce nombre de charges ou moins",
+  IND_CHARGES_OFF      = "Désactivé",
   IND_HINT             = "Glissez pour déplacer - reverrouillez dans l'onglet Options",
 
   PRESET_DEFAULT       = "Défaut",
@@ -243,24 +259,734 @@ local frFR = {
   PRESET_LOCK_QUICK    = "Bloquer le bouton rapide",
 }
 
+local deDE = {
+  MAINHAND             = "Waffenhand",
+  OFFHAND              = "Schildhand",
+  EMPTY                = "Nichts Brauchbares in deinen Taschen.",
+  NO_WEAPON            = "Nichts in der %s ausgerüstet: es gibt nichts zu vergiften.",
+  APPLIED              = "%s auf %s aufgetragen.",
+
+  CAT_DP               = "Tödliches Gift",
+  CAT_IP               = "Sofort wirkendes Gift",
+  CAT_WP               = "Wundgift",
+  CAT_CP               = "Verkrüppelndes Gift",
+  CAT_MP               = "Gedankenbenebelndes Gift",
+  CAT_AP               = "Betäubungsgift",
+  CAT_OP               = "Okkultes Gift",
+  CAT_NP               = "Lähmendes Gift",
+  CAT_TP               = "Atrophisches Gift",
+  CAT_SP               = "Talgiges Gift",
+  CAT_SS               = "Wetzsteine",
+  CAT_WS               = "Gewichtssteine",
+  CAT_OIL              = "Öle",
+
+  TT_LEFT              = "Linksklick: Giftleiste öffnen",
+  TT_RIGHT             = "Rechtsklick: Optionen",
+  TT_DRAG              = "Ziehen: Knopf verschieben",
+  TT_LOCKED            = "Position gesperrt (/poisonup unlock)",
+  TT_APPLY_MH          = "Linksklick: auf die Waffenhand auftragen",
+  TT_APPLY_OH          = "Rechtsklick: auf die Schildhand auftragen",
+  TT_FAVOURITE         = "Umschalt + Klick: im Standard-Set speichern",
+
+  QUICK_TITLE          = "Gift-Sets",
+  QUICK_EMPTY          = "Noch kein Set festgelegt.",
+
+  WARN_EXPIRED         = "%s hat kein Gift mehr!",
+  WARN_SOON            = "Gift der %s läuft in %s ab.",
+  AURA_HINT            = "Ziehen zum Verschieben - im Reiter Timer wieder sperren",
+  AURA_SAMPLE          = "Gift der Waffenhand läuft ab",
+
+  COMBAT_LATER         = "Menü im Kampf gesperrt, es wird danach aktualisiert.",
+  WELCOME              = "geladen. /poisonup für die Optionen.",
+  ENABLED              = "aktiviert.",
+  DISABLED             = "deaktiviert.",
+  RESET                = "Fenster zurückgesetzt.",
+  SAVED                = "Einstellungen gespeichert.",
+  PRESET_SET           = "Set %s: %s",
+  PRESETS_CLEARED      = "alle Gift-Sets gelöscht.",
+
+  SAVE                 = "Speichern",
+  CLOSE                = "Schließen",
+  TAB_OPTIONS          = "Optionen",
+  TAB_MENU             = "Menü",
+  TAB_TIMER            = "Timer",
+  TAB_PRESETS          = "Gift-Sets",
+
+  OPT_ENABLE           = "PoisonUp aktivieren",
+  OPT_BUTTONS          = "Knöpfe:",
+  OPT_MINIMAP          = "PoisonUp-Knopf an der Minikarte anzeigen",
+  OPT_FREE             = "Freien Knopf anzeigen",
+  OPT_RESET_POS        = "Position zurücksetzen",
+  OPT_LOCK_FREE        = "Freien Knopf sperren",
+  OPT_SCALE            = "Skalierung",
+  OPT_ALPHA            = "Deckkraft",
+  OPT_ANNOUNCE         = "Gewähltes Gift im Chat ankündigen",
+  OPT_HOVER_SECTION    = "Menü beim Überfahren:",
+  OPT_HOVER            = "Leiste zeigen, wenn die Maus über den Knopf fährt",
+  OPT_AUTOHIDE_SECTION = "Automatisch ausblenden:",
+  OPT_AUTOHIDE         = "Leiste beim Kampfbeginn automatisch ausblenden",
+
+  MENU_PARENT          = "Bezugsrahmen der Giftleiste:",
+  MENU_PARENT_FREE     = "Freier Knopf",
+  MENU_PARENT_MINIMAP  = "Minikarten-Knopf",
+  MENU_POSITION        = "Position der Leiste:",
+  POS_TOPLEFT          = "Oben links",
+  POS_TOP              = "Oben",
+  POS_TOPRIGHT         = "Oben rechts",
+  POS_LEFT             = "Links",
+  POS_RIGHT            = "Rechts",
+  POS_BOTTOMLEFT       = "Unten links",
+  POS_BOTTOM           = "Unten",
+  POS_BOTTOMRIGHT      = "Unten rechts",
+  MENU_SPACING         = "Abstand zwischen den Knöpfen",
+  MENU_VERTICAL        = "Vertikales Menü (Symbole gestapelt)",
+  ALL_UNLOCKED         = "Alles entsperrt: Knöpfe, Quadrate und Warnrahmen zum Verschieben ziehen.",
+  ALL_LOCKED           = "Alles gesperrt.",
+  MENU_TOOLTIP         = "Tooltip:",
+  MENU_TOOLTIP_FULL    = "Vollständig",
+  MENU_TOOLTIP_NAME    = "Nur Name",
+  MENU_QUICK_SECTION   = "Giftleiste und Schnellknopf:",
+  MENU_OVERWRITE       = "Gespeicherte Sets überschreiben",
+  MENU_OVERWRITE_NOTE  = "Wenn aktiv, ersetzt ein Gift aus der Leiste auch den passenden Eintrag des Standard-Sets.",
+  MENU_SORTING         = "Knopf-Sortierung",
+  SORTING_HINT         = "Reihenfolge der Giftarten in der Leiste.",
+
+  TIMER_SHOW           = "Restzeit ablaufender Gifte anzeigen",
+  TIMER_THRESHOLD      = "Warnschwelle (Minuten)",
+  TIMER_FISHING        = "Warnungen beim Angeln ignorieren",
+  TIMER_INSTANCE       = "Nur in Instanz, Arena oder Schlachtfeld warnen",
+  TIMER_WEAPONS        = "Zu prüfende Waffen:",
+  TIMER_CHANNELS       = "Giftwarnungen anzeigen über:",
+  TIMER_ENABLED        = "Warnungen aktiviert",
+  TIMER_CHAT           = "Chat",
+  TIMER_ERROR          = "Fehlerrahmen",
+  TIMER_AURA           = "Aurarahmen",
+  TIMER_AURA_LOCK      = "Aurarahmen sperren",
+  IND_SECTION          = "Waffenquadrate:",
+  IND_SHOW             = "Ein Quadrat pro Waffe zeigen, die Gift braucht",
+  IND_STONES           = "Auch Quadrate für Steine / Öle zeigen",
+  IND_BOUNCE           = "Quadrate hüpfen lassen, wenn ein Gift bald abläuft",
+  IND_OOC              = "Waffen ohne Gift / Stein auch außerhalb des Kampfes zeigen",
+  IND_ALWAYS           = "Quadrate immer zeigen (im und außerhalb des Kampfes)",
+  IND_WINDFURY         = "Quadrat für Totem des Windzorns zeigen (Schamane in der Gruppe)",
+  IND_LOCK             = "Quadrate sperren",
+  IND_SIZE             = "Größe der Quadrate",
+  IND_FADE             = "Deckkraft, wenn das Gift bald abläuft",
+  IND_SHOW_CHARGES     = "Verbleibende Aufladungen auf den Quadraten zeigen",
+  IND_WARN_CHARGES     = "Quadrat (abgeblendet) ab so vielen Aufladungen zeigen",
+  IND_CHARGES_OFF      = "Aus",
+  IND_HINT             = "Ziehen zum Verschieben - im Reiter Optionen wieder sperren",
+
+  PRESET_DEFAULT       = "Standard",
+  PRESET_SHIFT         = "UMSCHALT",
+  PRESET_CTRL          = "STRG",
+  PRESET_ALT           = "ALT-Taste",
+  PRESET_SHOW_QUICK    = "Schnellknopf anzeigen",
+  PRESET_LOCK_QUICK    = "Schnellknopf sperren",
+
+  LANGUAGE             = "Sprache",
+  LANG_AUTO            = "Automatisch",
+  LANG_RELOAD          = "Neu laden",
+  LANG_CHANGED         = "Sprache geändert: lade die Oberfläche neu, um sie anzuwenden.",
+  WARRIOR_SETS         = "Stein-Sets",
+  WARRIOR_CLEARED      = "alle Stein-Sets gelöscht.",
+}
+
+local esES = {
+  MAINHAND             = "Mano principal",
+  OFFHAND              = "Mano secundaria",
+  EMPTY                = "No hay nada útil en tus bolsas.",
+  NO_WEAPON            = "Nada equipado en %s: no hay nada que envenenar.",
+  APPLIED              = "%s aplicado en %s.",
+
+  CAT_DP               = "Veneno mortal",
+  CAT_IP               = "Veneno instantáneo",
+  CAT_WP               = "Veneno hiriente",
+  CAT_CP               = "Veneno entorpecedor",
+  CAT_MP               = "Veneno de aturdimiento mental",
+  CAT_AP               = "Veneno anestésico",
+  CAT_OP               = "Veneno oculto",
+  CAT_NP               = "Veneno adormecedor",
+  CAT_TP               = "Veneno atrófico",
+  CAT_SP               = "Veneno sebáceo",
+  CAT_SS               = "Piedras de afilar",
+  CAT_WS               = "Piedras de peso",
+  CAT_OIL              = "Aceites",
+
+  TT_LEFT              = "Clic izquierdo: abrir la barra de venenos",
+  TT_RIGHT             = "Clic derecho: opciones",
+  TT_DRAG              = "Arrastrar: mover el botón",
+  TT_LOCKED            = "Posición bloqueada (/poisonup unlock)",
+  TT_APPLY_MH          = "Clic izquierdo: aplicar en la mano principal",
+  TT_APPLY_OH          = "Clic derecho: aplicar en la mano secundaria",
+  TT_FAVOURITE         = "Mayús + clic: guardar en el conjunto Predeterminado",
+
+  QUICK_TITLE          = "Conjuntos de venenos",
+  QUICK_EMPTY          = "Aún no hay ningún conjunto.",
+
+  WARN_EXPIRED         = "¡%s ya no tiene veneno!",
+  WARN_SOON            = "El veneno de %s expira en %s.",
+  AURA_HINT            = "Arrastra para mover - vuelve a bloquearlo en la pestaña Temporizador",
+  AURA_SAMPLE          = "Veneno de la mano principal a punto de expirar",
+
+  COMBAT_LATER         = "Menú bloqueado en combate, se actualizará después.",
+  WELCOME              = "cargado. /poisonup para las opciones.",
+  ENABLED              = "activado.",
+  DISABLED             = "desactivado.",
+  RESET                = "marcos restablecidos.",
+  SAVED                = "ajustes guardados.",
+  PRESET_SET           = "Conjunto %s: %s",
+  PRESETS_CLEARED      = "todos los conjuntos de venenos borrados.",
+
+  SAVE                 = "Guardar",
+  CLOSE                = "Cerrar",
+  TAB_OPTIONS          = "Opciones",
+  TAB_MENU             = "Menú",
+  TAB_TIMER            = "Temporizador",
+  TAB_PRESETS          = "Conjuntos",
+
+  OPT_ENABLE           = "Activar PoisonUp",
+  OPT_BUTTONS          = "Botones:",
+  OPT_MINIMAP          = "Mostrar el botón de PoisonUp en el minimapa",
+  OPT_FREE             = "Mostrar el botón libre",
+  OPT_RESET_POS        = "Restablecer posición",
+  OPT_LOCK_FREE        = "Bloquear el botón libre",
+  OPT_SCALE            = "Escala",
+  OPT_ALPHA            = "Opacidad",
+  OPT_ANNOUNCE         = "Anunciar el veneno elegido en el chat",
+  OPT_HOVER_SECTION    = "Menú al pasar el ratón:",
+  OPT_HOVER            = "Mostrar la barra al pasar el ratón sobre el botón",
+  OPT_AUTOHIDE_SECTION = "Ocultar automáticamente:",
+  OPT_AUTOHIDE         = "Ocultar la barra al entrar en combate",
+
+  MENU_PARENT          = "Marco de referencia de la barra:",
+  MENU_PARENT_FREE     = "Botón libre",
+  MENU_PARENT_MINIMAP  = "Botón del minimapa",
+  MENU_POSITION        = "Posición de la barra:",
+  POS_TOPLEFT          = "Arriba izq.",
+  POS_TOP              = "Arriba",
+  POS_TOPRIGHT         = "Arriba der.",
+  POS_LEFT             = "Izquierda",
+  POS_RIGHT            = "Derecha",
+  POS_BOTTOMLEFT       = "Abajo izq.",
+  POS_BOTTOM           = "Abajo",
+  POS_BOTTOMRIGHT      = "Abajo der.",
+  MENU_SPACING         = "Espacio entre botones",
+  MENU_VERTICAL        = "Menú vertical (iconos apilados)",
+  ALL_UNLOCKED         = "Todo desbloqueado: arrastra los botones, cuadros y aviso para moverlos.",
+  ALL_LOCKED           = "Todo bloqueado.",
+  MENU_TOOLTIP         = "Descripción emergente:",
+  MENU_TOOLTIP_FULL    = "Completa",
+  MENU_TOOLTIP_NAME    = "Solo el nombre",
+  MENU_QUICK_SECTION   = "Barra de venenos y botón rápido:",
+  MENU_OVERWRITE       = "Sobrescribir los conjuntos guardados",
+  MENU_OVERWRITE_NOTE  = "Si está marcado, aplicar un veneno desde la barra también reemplaza la entrada del conjunto Predeterminado.",
+  MENU_SORTING         = "Orden de botones",
+  SORTING_HINT         = "Orden de los tipos de veneno en la barra.",
+
+  TIMER_SHOW           = "Mostrar el tiempo restante de los venenos que expiran",
+  TIMER_THRESHOLD      = "Umbral de aviso (minutos)",
+  TIMER_FISHING        = "Ignorar avisos mientras pescas",
+  TIMER_INSTANCE       = "Avisar solo en mazmorra, arena o campo de batalla",
+  TIMER_WEAPONS        = "Armas a comprobar:",
+  TIMER_CHANNELS       = "Mostrar los avisos de veneno en:",
+  TIMER_ENABLED        = "Avisos activados",
+  TIMER_CHAT           = "Chat",
+  TIMER_ERROR          = "Marco de errores",
+  TIMER_AURA           = "Marco de aura",
+  TIMER_AURA_LOCK      = "Bloquear el marco de aura",
+  IND_SECTION          = "Cuadros de arma:",
+  IND_SHOW             = "Mostrar un cuadro por arma que necesite veneno",
+  IND_STONES           = "Mostrar también cuadros para piedras / aceites",
+  IND_BOUNCE           = "Hacer rebotar los cuadros cuando un veneno va a expirar",
+  IND_OOC              = "Mostrar también fuera de combate las armas sin veneno / piedra",
+  IND_ALWAYS           = "Mostrar siempre los cuadros (dentro y fuera de combate)",
+  IND_WINDFURY         = "Mostrar un cuadro de Tótem Viento Furioso (chamán en el grupo)",
+  IND_LOCK             = "Bloquear los cuadros",
+  IND_SIZE             = "Tamaño de los cuadros",
+  IND_FADE             = "Opacidad cuando el veneno va a expirar",
+  IND_SHOW_CHARGES     = "Mostrar las cargas restantes en los cuadros",
+  IND_WARN_CHARGES     = "Mostrar el cuadro (atenuado) con estas cargas o menos",
+  IND_CHARGES_OFF      = "No",
+  IND_HINT             = "Arrastra para mover - vuelve a bloquearlos en la pestaña Opciones",
+
+  PRESET_DEFAULT       = "Predeterminado",
+  PRESET_SHIFT         = "MAYÚS",
+  PRESET_CTRL          = "CTRL",
+  PRESET_ALT           = "Tecla ALT",
+  PRESET_SHOW_QUICK    = "Mostrar el botón rápido",
+  PRESET_LOCK_QUICK    = "Bloquear el botón rápido",
+
+  LANGUAGE             = "Idioma",
+  LANG_AUTO            = "Automático",
+  LANG_RELOAD          = "Recargar",
+  LANG_CHANGED         = "Idioma cambiado: recarga la interfaz para aplicarlo.",
+  WARRIOR_SETS         = "Conjuntos de piedras",
+  WARRIOR_CLEARED      = "todos los conjuntos de piedras borrados.",
+}
+
+local itIT = {
+  MAINHAND             = "Mano primaria",
+  OFFHAND              = "Mano secondaria",
+  EMPTY                = "Niente di utilizzabile nelle borse.",
+  NO_WEAPON            = "Niente equipaggiato in %s: non c'è nulla da avvelenare.",
+  APPLIED              = "%s applicato a %s.",
+
+  CAT_DP               = "Veleno Mortale",
+  CAT_IP               = "Veleno Istantaneo",
+  CAT_WP               = "Veleno Ferente",
+  CAT_CP               = "Veleno Paralizzante",
+  CAT_MP               = "Veleno Intorpidente",
+  CAT_AP               = "Veleno Anestetico",
+  CAT_OP               = "Veleno Occulto",
+  CAT_NP               = "Veleno Anestetizzante",
+  CAT_TP               = "Veleno Atrofico",
+  CAT_SP               = "Veleno Sebaceo",
+  CAT_SS               = "Pietre per affilare",
+  CAT_WS               = "Pietre da peso",
+  CAT_OIL              = "Oli",
+
+  TT_LEFT              = "Clic sinistro: apri la barra dei veleni",
+  TT_RIGHT             = "Clic destro: opzioni",
+  TT_DRAG              = "Trascina: sposta il pulsante",
+  TT_LOCKED            = "Posizione bloccata (/poisonup unlock)",
+  TT_APPLY_MH          = "Clic sinistro: applica alla mano primaria",
+  TT_APPLY_OH          = "Clic destro: applica alla mano secondaria",
+  TT_FAVOURITE         = "Maiusc + clic: salva nel set Predefinito",
+
+  QUICK_TITLE          = "Set di veleni",
+  QUICK_EMPTY          = "Nessun set ancora definito.",
+
+  WARN_EXPIRED         = "%s non ha più veleno!",
+  WARN_SOON            = "Il veleno della %s scade tra %s.",
+  AURA_HINT            = "Trascina per spostare - bloccalo di nuovo nella scheda Timer",
+  AURA_SAMPLE          = "Veleno della mano primaria in scadenza",
+
+  COMBAT_LATER         = "Menu bloccato in combattimento, verrà aggiornato dopo.",
+  WELCOME              = "caricato. /poisonup per le opzioni.",
+  ENABLED              = "attivato.",
+  DISABLED             = "disattivato.",
+  RESET                = "riquadri ripristinati.",
+  SAVED                = "impostazioni salvate.",
+  PRESET_SET           = "Set %s: %s",
+  PRESETS_CLEARED      = "tutti i set di veleni cancellati.",
+
+  SAVE                 = "Salva",
+  CLOSE                = "Chiudi",
+  TAB_OPTIONS          = "Opzioni",
+  TAB_MENU             = "Menu",
+  TAB_TIMER            = "Timer",
+  TAB_PRESETS          = "Set di veleni",
+
+  OPT_ENABLE           = "Attiva PoisonUp",
+  OPT_BUTTONS          = "Pulsanti:",
+  OPT_MINIMAP          = "Mostra il pulsante di PoisonUp sulla minimappa",
+  OPT_FREE             = "Mostra il pulsante libero",
+  OPT_RESET_POS        = "Ripristina posizione",
+  OPT_LOCK_FREE        = "Blocca il pulsante libero",
+  OPT_SCALE            = "Scala",
+  OPT_ALPHA            = "Opacità",
+  OPT_ANNOUNCE         = "Annuncia in chat il veleno scelto",
+  OPT_HOVER_SECTION    = "Menu al passaggio del mouse:",
+  OPT_HOVER            = "Mostra la barra quando il mouse passa sul pulsante",
+  OPT_AUTOHIDE_SECTION = "Nascondi automaticamente:",
+  OPT_AUTOHIDE         = "Nascondi la barra all'inizio del combattimento",
+
+  MENU_PARENT          = "Riquadro di riferimento della barra:",
+  MENU_PARENT_FREE     = "Pulsante libero",
+  MENU_PARENT_MINIMAP  = "Pulsante della minimappa",
+  MENU_POSITION        = "Posizione della barra:",
+  POS_TOPLEFT          = "In alto a sin.",
+  POS_TOP              = "In alto",
+  POS_TOPRIGHT         = "In alto a des.",
+  POS_LEFT             = "Sinistra",
+  POS_RIGHT            = "Destra",
+  POS_BOTTOMLEFT       = "In basso a sin.",
+  POS_BOTTOM           = "In basso",
+  POS_BOTTOMRIGHT      = "In basso a des.",
+  MENU_SPACING         = "Spazio tra i pulsanti",
+  MENU_VERTICAL        = "Menu verticale (icone impilate)",
+  ALL_UNLOCKED         = "Tutto sbloccato: trascina pulsanti, quadrati e avviso per spostarli.",
+  ALL_LOCKED           = "Tutto bloccato.",
+  MENU_TOOLTIP         = "Descrizione:",
+  MENU_TOOLTIP_FULL    = "Completa",
+  MENU_TOOLTIP_NAME    = "Solo il nome",
+  MENU_QUICK_SECTION   = "Barra dei veleni e pulsante rapido:",
+  MENU_OVERWRITE       = "Sovrascrivi i set salvati",
+  MENU_OVERWRITE_NOTE  = "Se attivo, applicare un veleno dalla barra sostituisce anche la voce del set Predefinito.",
+  MENU_SORTING         = "Ordine pulsanti",
+  SORTING_HINT         = "Ordine dei tipi di veleno nella barra.",
+
+  TIMER_SHOW           = "Mostra il tempo rimanente dei veleni in scadenza",
+  TIMER_THRESHOLD      = "Soglia di avviso (minuti)",
+  TIMER_FISHING        = "Ignora gli avvisi mentre peschi",
+  TIMER_INSTANCE       = "Avvisa solo in spedizione, arena o campo di battaglia",
+  TIMER_WEAPONS        = "Armi da controllare:",
+  TIMER_CHANNELS       = "Mostra gli avvisi dei veleni tramite:",
+  TIMER_ENABLED        = "Avvisi attivi",
+  TIMER_CHAT           = "Chat",
+  TIMER_ERROR          = "Riquadro errori",
+  TIMER_AURA           = "Riquadro aura",
+  TIMER_AURA_LOCK      = "Blocca il riquadro aura",
+  IND_SECTION          = "Quadrati delle armi:",
+  IND_SHOW             = "Mostra un quadrato per ogni arma che ha bisogno di veleno",
+  IND_STONES           = "Mostra anche i quadrati per pietre / oli",
+  IND_BOUNCE           = "Fai rimbalzare i quadrati quando un veleno sta per scadere",
+  IND_OOC              = "Mostra anche fuori combattimento le armi senza veleno / pietra",
+  IND_ALWAYS           = "Mostra sempre i quadrati (in e fuori combattimento)",
+  IND_WINDFURY         = "Mostra un quadrato del Totem Furia del Vento (sciamano nel gruppo)",
+  IND_LOCK             = "Blocca i quadrati",
+  IND_SIZE             = "Dimensione dei quadrati",
+  IND_FADE             = "Opacità quando il veleno sta per scadere",
+  IND_SHOW_CHARGES     = "Mostra le cariche rimanenti sui quadrati",
+  IND_WARN_CHARGES     = "Mostra il quadrato (attenuato) con queste cariche o meno",
+  IND_CHARGES_OFF      = "No",
+  IND_HINT             = "Trascina per spostare - bloccali di nuovo nella scheda Opzioni",
+
+  PRESET_DEFAULT       = "Predefinito",
+  PRESET_SHIFT         = "MAIUSC",
+  PRESET_CTRL          = "CTRL",
+  PRESET_ALT           = "Tasto ALT",
+  PRESET_SHOW_QUICK    = "Mostra il pulsante rapido",
+  PRESET_LOCK_QUICK    = "Blocca il pulsante rapido",
+
+  LANGUAGE             = "Lingua",
+  LANG_AUTO            = "Automatica",
+  LANG_RELOAD          = "Ricarica",
+  LANG_CHANGED         = "Lingua cambiata: ricarica l'interfaccia per applicarla.",
+  WARRIOR_SETS         = "Set di pietre",
+  WARRIOR_CLEARED      = "tutti i set di pietre cancellati.",
+}
+
+local ptBR = {
+  MAINHAND             = "Mão principal",
+  OFFHAND              = "Mão secundária",
+  EMPTY                = "Nada utilizável nas suas bolsas.",
+  NO_WEAPON            = "Nada equipado na %s: não há o que envenenar.",
+  APPLIED              = "%s aplicado em %s.",
+
+  CAT_DP               = "Veneno Mortal",
+  CAT_IP               = "Veneno Instantâneo",
+  CAT_WP               = "Veneno Ferino",
+  CAT_CP               = "Veneno Debilitante",
+  CAT_MP               = "Veneno Entorpecente",
+  CAT_AP               = "Veneno Anestésico",
+  CAT_OP               = "Veneno Oculto",
+  CAT_NP               = "Veneno Adormecedor",
+  CAT_TP               = "Veneno Atrófico",
+  CAT_SP               = "Veneno Sebáceo",
+  CAT_SS               = "Pedras de amolar",
+  CAT_WS               = "Pedras de peso",
+  CAT_OIL              = "Óleos",
+
+  TT_LEFT              = "Clique esquerdo: abrir a barra de venenos",
+  TT_RIGHT             = "Clique direito: opções",
+  TT_DRAG              = "Arrastar: mover o botão",
+  TT_LOCKED            = "Posição travada (/poisonup unlock)",
+  TT_APPLY_MH          = "Clique esquerdo: aplicar na mão principal",
+  TT_APPLY_OH          = "Clique direito: aplicar na mão secundária",
+  TT_FAVOURITE         = "Shift + clique: salvar no conjunto Padrão",
+
+  QUICK_TITLE          = "Conjuntos de venenos",
+  QUICK_EMPTY          = "Nenhum conjunto definido ainda.",
+
+  WARN_EXPIRED         = "%s está sem veneno!",
+  WARN_SOON            = "O veneno da %s expira em %s.",
+  AURA_HINT            = "Arraste para mover - trave de novo na aba Temporizador",
+  AURA_SAMPLE          = "Veneno da mão principal expirando",
+
+  COMBAT_LATER         = "Menu travado em combate, será atualizado depois.",
+  WELCOME              = "carregado. /poisonup para as opções.",
+  ENABLED              = "ativado.",
+  DISABLED             = "desativado.",
+  RESET                = "quadros redefinidos.",
+  SAVED                = "configurações salvas.",
+  PRESET_SET           = "Conjunto %s: %s",
+  PRESETS_CLEARED      = "todos os conjuntos de venenos apagados.",
+
+  SAVE                 = "Salvar",
+  CLOSE                = "Fechar",
+  TAB_OPTIONS          = "Opções",
+  TAB_MENU             = "Menu",
+  TAB_TIMER            = "Temporizador",
+  TAB_PRESETS          = "Conjuntos",
+
+  OPT_ENABLE           = "Ativar PoisonUp",
+  OPT_BUTTONS          = "Botões:",
+  OPT_MINIMAP          = "Mostrar o botão do PoisonUp no minimapa",
+  OPT_FREE             = "Mostrar o botão livre",
+  OPT_RESET_POS        = "Redefinir posição",
+  OPT_LOCK_FREE        = "Travar o botão livre",
+  OPT_SCALE            = "Escala",
+  OPT_ALPHA            = "Opacidade",
+  OPT_ANNOUNCE         = "Anunciar o veneno escolhido no chat",
+  OPT_HOVER_SECTION    = "Menu ao passar o mouse:",
+  OPT_HOVER            = "Mostrar a barra quando o mouse passa sobre o botão",
+  OPT_AUTOHIDE_SECTION = "Ocultar automaticamente:",
+  OPT_AUTOHIDE         = "Ocultar a barra ao entrar em combate",
+
+  MENU_PARENT          = "Quadro de referência da barra:",
+  MENU_PARENT_FREE     = "Botão livre",
+  MENU_PARENT_MINIMAP  = "Botão do minimapa",
+  MENU_POSITION        = "Posição da barra:",
+  POS_TOPLEFT          = "Acima esq.",
+  POS_TOP              = "Acima",
+  POS_TOPRIGHT         = "Acima dir.",
+  POS_LEFT             = "Esquerda",
+  POS_RIGHT            = "Direita",
+  POS_BOTTOMLEFT       = "Abaixo esq.",
+  POS_BOTTOM           = "Abaixo",
+  POS_BOTTOMRIGHT      = "Abaixo dir.",
+  MENU_SPACING         = "Espaço entre os botões",
+  MENU_VERTICAL        = "Menu vertical (ícones empilhados)",
+  ALL_UNLOCKED         = "Tudo destravado: arraste os botões, quadrados e alerta para movê-los.",
+  ALL_LOCKED           = "Tudo travado.",
+  MENU_TOOLTIP         = "Dica:",
+  MENU_TOOLTIP_FULL    = "Completa",
+  MENU_TOOLTIP_NAME    = "Só o nome",
+  MENU_QUICK_SECTION   = "Barra de venenos e botão rápido:",
+  MENU_OVERWRITE       = "Sobrescrever os conjuntos salvos",
+  MENU_OVERWRITE_NOTE  = "Se marcado, aplicar um veneno pela barra também substitui a entrada do conjunto Padrão.",
+  MENU_SORTING         = "Ordem dos botões",
+  SORTING_HINT         = "Ordem dos tipos de veneno na barra.",
+
+  TIMER_SHOW           = "Mostrar o tempo restante dos venenos expirando",
+  TIMER_THRESHOLD      = "Limite de aviso (minutos)",
+  TIMER_FISHING        = "Ignorar avisos enquanto pesca",
+  TIMER_INSTANCE       = "Avisar só em masmorra, arena ou campo de batalha",
+  TIMER_WEAPONS        = "Armas a verificar:",
+  TIMER_CHANNELS       = "Mostrar os avisos de veneno por:",
+  TIMER_ENABLED        = "Avisos ativados",
+  TIMER_CHAT           = "Chat",
+  TIMER_ERROR          = "Quadro de erros",
+  TIMER_AURA           = "Quadro de aura",
+  TIMER_AURA_LOCK      = "Travar o quadro de aura",
+  IND_SECTION          = "Quadrados das armas:",
+  IND_SHOW             = "Mostrar um quadrado por arma que precisa de veneno",
+  IND_STONES           = "Mostrar também quadrados para pedras / óleos",
+  IND_BOUNCE           = "Fazer os quadrados quicarem quando um veneno vai expirar",
+  IND_OOC              = "Mostrar também fora de combate as armas sem veneno / pedra",
+  IND_ALWAYS           = "Sempre mostrar os quadrados (dentro e fora de combate)",
+  IND_WINDFURY         = "Mostrar um quadrado do Totem de Fúria dos Ventos (xamã no grupo)",
+  IND_LOCK             = "Travar os quadrados",
+  IND_SIZE             = "Tamanho dos quadrados",
+  IND_FADE             = "Opacidade quando o veneno vai expirar",
+  IND_SHOW_CHARGES     = "Mostrar as cargas restantes nos quadrados",
+  IND_WARN_CHARGES     = "Mostrar o quadrado (esmaecido) com estas cargas ou menos",
+  IND_CHARGES_OFF      = "Não",
+  IND_HINT             = "Arraste para mover - trave de novo na aba Opções",
+
+  PRESET_DEFAULT       = "Padrão",
+  PRESET_SHIFT         = "SHIFT",
+  PRESET_CTRL          = "CTRL",
+  PRESET_ALT           = "Tecla ALT",
+  PRESET_SHOW_QUICK    = "Mostrar o botão rápido",
+  PRESET_LOCK_QUICK    = "Travar o botão rápido",
+
+  LANGUAGE             = "Idioma",
+  LANG_AUTO            = "Automático",
+  LANG_RELOAD          = "Recarregar",
+  LANG_CHANGED         = "Idioma alterado: recarregue a interface para aplicar.",
+  WARRIOR_SETS         = "Conjuntos de pedras",
+  WARRIOR_CLEARED      = "todos os conjuntos de pedras apagados.",
+}
+
+local ruRU = {
+  MAINHAND             = "Правая рука",
+  OFFHAND              = "Левая рука",
+  EMPTY                = "В сумках нет ничего подходящего.",
+  NO_WEAPON            = "В слоте «%s» ничего нет: нечего отравлять.",
+  APPLIED              = "%s нанесён на %s.",
+
+  CAT_DP               = "Смертельный яд",
+  CAT_IP               = "Быстродействующий яд",
+  CAT_WP               = "Нейтрализующий яд",
+  CAT_CP               = "Калечащий яд",
+  CAT_MP               = "Дурманящий яд",
+  CAT_AP               = "Обезболивающий яд",
+  CAT_OP               = "Оккультный яд",
+  CAT_NP               = "Парализующий яд",
+  CAT_TP               = "Атрофический яд",
+  CAT_SP               = "Сальный яд",
+  CAT_SS               = "Точильные камни",
+  CAT_WS               = "Грузила",
+  CAT_OIL              = "Масла",
+
+  TT_LEFT              = "ЛКМ: открыть панель ядов",
+  TT_RIGHT             = "ПКМ: настройки",
+  TT_DRAG              = "Перетащить: переместить кнопку",
+  TT_LOCKED            = "Позиция закреплена (/poisonup unlock)",
+  TT_APPLY_MH          = "ЛКМ: нанести на правую руку",
+  TT_APPLY_OH          = "ПКМ: нанести на левую руку",
+  TT_FAVOURITE         = "Shift + клик: сохранить в набор по умолчанию",
+
+  QUICK_TITLE          = "Наборы ядов",
+  QUICK_EMPTY          = "Наборы ещё не заданы.",
+
+  WARN_EXPIRED         = "%s: яд закончился!",
+  WARN_SOON            = "%s: яд истекает через %s.",
+  AURA_HINT            = "Перетащите - снова закрепите во вкладке «Таймер»",
+  AURA_SAMPLE          = "Яд на правой руке истекает",
+
+  COMBAT_LATER         = "Меню заблокировано в бою, оно обновится позже.",
+  WELCOME              = "загружен. /poisonup - настройки.",
+  ENABLED              = "включён.",
+  DISABLED             = "выключен.",
+  RESET                = "окна сброшены.",
+  SAVED                = "настройки сохранены.",
+  PRESET_SET           = "Набор %s: %s",
+  PRESETS_CLEARED      = "все наборы ядов удалены.",
+
+  SAVE                 = "Сохранить",
+  CLOSE                = "Закрыть",
+  TAB_OPTIONS          = "Настройки",
+  TAB_MENU             = "Меню",
+  TAB_TIMER            = "Таймер",
+  TAB_PRESETS          = "Наборы",
+
+  OPT_ENABLE           = "Включить PoisonUp",
+  OPT_BUTTONS          = "Кнопки:",
+  OPT_MINIMAP          = "Показывать кнопку PoisonUp у мини-карты",
+  OPT_FREE             = "Показывать свободную кнопку",
+  OPT_RESET_POS        = "Сбросить позицию",
+  OPT_LOCK_FREE        = "Закрепить свободную кнопку",
+  OPT_SCALE            = "Масштаб",
+  OPT_ALPHA            = "Прозрачность",
+  OPT_ANNOUNCE         = "Сообщать выбранный яд в чат",
+  OPT_HOVER_SECTION    = "Меню при наведении:",
+  OPT_HOVER            = "Показывать панель при наведении на кнопку",
+  OPT_AUTOHIDE_SECTION = "Автоскрытие:",
+  OPT_AUTOHIDE         = "Скрывать панель при входе в бой",
+
+  MENU_PARENT          = "Опорная рамка панели:",
+  MENU_PARENT_FREE     = "Свободная кнопка",
+  MENU_PARENT_MINIMAP  = "Кнопка мини-карты",
+  MENU_POSITION        = "Положение панели:",
+  POS_TOPLEFT          = "Слева сверху",
+  POS_TOP              = "Сверху",
+  POS_TOPRIGHT         = "Справа сверху",
+  POS_LEFT             = "Слева",
+  POS_RIGHT            = "Справа",
+  POS_BOTTOMLEFT       = "Слева снизу",
+  POS_BOTTOM           = "Снизу",
+  POS_BOTTOMRIGHT      = "Справа снизу",
+  MENU_SPACING         = "Расстояние между кнопками",
+  MENU_VERTICAL        = "Вертикальное меню (значки столбиком)",
+  ALL_UNLOCKED         = "Всё откреплено: перетащите кнопки, квадраты и окно предупреждения.",
+  ALL_LOCKED           = "Всё закреплено.",
+  MENU_TOOLTIP         = "Подсказка:",
+  MENU_TOOLTIP_FULL    = "Полная",
+  MENU_TOOLTIP_NAME    = "Только название",
+  MENU_QUICK_SECTION   = "Панель ядов и быстрая кнопка:",
+  MENU_OVERWRITE       = "Перезаписывать сохранённые наборы",
+  MENU_OVERWRITE_NOTE  = "Если включено, яд, нанесённый с панели, заменяет и запись в наборе по умолчанию.",
+  MENU_SORTING         = "Порядок кнопок",
+  SORTING_HINT         = "Порядок типов ядов на панели.",
+
+  TIMER_SHOW           = "Показывать оставшееся время истекающих ядов",
+  TIMER_THRESHOLD      = "Порог предупреждения (минуты)",
+  TIMER_FISHING        = "Не предупреждать во время рыбалки",
+  TIMER_INSTANCE       = "Предупреждать только в подземелье, на арене или поле боя",
+  TIMER_WEAPONS        = "Проверяемое оружие:",
+  TIMER_CHANNELS       = "Показывать предупреждения о ядах через:",
+  TIMER_ENABLED        = "Предупреждения включены",
+  TIMER_CHAT           = "Чат",
+  TIMER_ERROR          = "Рамка ошибок",
+  TIMER_AURA           = "Рамка ауры",
+  TIMER_AURA_LOCK      = "Закрепить рамку ауры",
+  IND_SECTION          = "Квадраты оружия:",
+  IND_SHOW             = "Квадрат для каждого оружия, которому нужен яд",
+  IND_STONES           = "Также квадраты для камней / масел",
+  IND_BOUNCE           = "Квадраты подпрыгивают, когда яд скоро истечёт",
+  IND_OOC              = "Показывать оружие без яда / камня и вне боя",
+  IND_ALWAYS           = "Всегда показывать квадраты (в бою и вне боя)",
+  IND_WINDFURY         = "Квадрат тотема неистовства ветра (шаман в группе)",
+  IND_LOCK             = "Закрепить квадраты",
+  IND_SIZE             = "Размер квадратов",
+  IND_FADE             = "Прозрачность, когда яд скоро истечёт",
+  IND_SHOW_CHARGES     = "Показывать оставшиеся заряды на квадратах",
+  IND_WARN_CHARGES     = "Показывать квадрат (затемнённым) при стольких зарядах или меньше",
+  IND_CHARGES_OFF      = "Выкл.",
+  IND_HINT             = "Перетащите - снова закрепите во вкладке «Настройки»",
+
+  PRESET_DEFAULT       = "По умолчанию",
+  PRESET_SHIFT         = "SHIFT",
+  PRESET_CTRL          = "CTRL",
+  PRESET_ALT           = "Клавиша ALT",
+  PRESET_SHOW_QUICK    = "Показывать быструю кнопку",
+  PRESET_LOCK_QUICK    = "Закрепить быструю кнопку",
+
+  LANGUAGE             = "Язык",
+  LANG_AUTO            = "Автоматически",
+  LANG_RELOAD          = "Перезагрузить",
+  LANG_CHANGED         = "Язык изменён: перезагрузите интерфейс, чтобы применить.",
+  WARRIOR_SETS         = "Наборы камней",
+  WARRIOR_CLEARED      = "все наборы камней удалены.",
+}
+
+-- =========================================================
+-- CHOIX DE LA LANGUE
+-- =========================================================
+-- Par défaut, la langue du client. Le joueur peut en forcer une autre dans
+-- les options (NS.DB().language) ; elle s'applique au rechargement, car les
+-- réglages ne sont lus qu'après le chargement des fichiers.
+local TABLES = {
+  enUS = enUS, frFR = frFR, deDE = deDE, esES = esES, esMX = esES,
+  itIT = itIT, ptBR = ptBR, ptPT = ptBR, ruRU = ruRU,
+}
+
+-- Ordre de la liste des options. Chaque langue s'écrit dans sa propre langue.
+NS.LANGUAGES = {
+  { code = "enUS", name = "English" },
+  { code = "frFR", name = "Français" },
+  { code = "deDE", name = "Deutsch" },
+  { code = "esES", name = "Español" },
+  { code = "itIT", name = "Italiano" },
+  { code = "ptBR", name = "Português" },
+  { code = "ruRU", name = "Русский" },
+}
+
+-- Textes communs à toutes les langues, puis ceux propres aux guerriers.
+enUS.LANGUAGE        = "Language"
+enUS.LANG_AUTO       = "Automatic"
+enUS.LANG_RELOAD     = "Reload"
+enUS.LANG_CHANGED    = "Language changed: reload the interface to apply it."
+enUS.WARRIOR_SETS    = "Stone sets"
+enUS.WARRIOR_CLEARED = "all stone sets cleared."
+frFR.LANGUAGE        = "Langue"
+frFR.LANG_AUTO       = "Automatique"
+frFR.LANG_RELOAD     = "Recharger"
+frFR.LANG_CHANGED    = "Langue changée : rechargez l'interface pour l'appliquer."
+frFR.WARRIOR_SETS    = "Sets de pierre"
+frFR.WARRIOR_CLEARED = "tous les sets de pierre ont été effacés."
+
+-- La même table L est gardée et remplie sur place : tous les fichiers qui ont
+-- fait « local L = NS.L » voient la nouvelle langue.
 local L = setmetatable({}, { __index = function(_, key) return key end })
-for key, value in pairs(enUS) do L[key] = value end
-if GetLocale() == "frFR" then
-  for key, value in pairs(frFR) do L[key] = value end
-end
-
--- Guerrier : pas de poison, les jeux deviennent des jeux de pierres.
-local _, playerClass = UnitClass("player")
-if playerClass == "WARRIOR" then
-  if GetLocale() == "frFR" then
-    L.TAB_PRESETS     = "Sets de pierre"
-    L.QUICK_TITLE     = "Sets de pierre"
-    L.PRESETS_CLEARED = "tous les sets de pierre ont été effacés."
-  else
-    L.TAB_PRESETS     = "Stone sets"
-    L.QUICK_TITLE     = "Stone sets"
-    L.PRESETS_CLEARED = "all stone sets cleared."
-  end
-end
-
 NS.L = L
+
+function NS.ApplyLocale(code)
+  if not code or not TABLES[code] then code = GetLocale() end
+  if not TABLES[code] then code = "enUS" end
+  NS.localeCode = code
+
+  for key in pairs(L) do L[key] = nil end
+  for key, value in pairs(enUS) do L[key] = value end
+  if code ~= "enUS" then
+    for key, value in pairs(TABLES[code]) do L[key] = value end
+  end
+  L.TITLE = enUS.TITLE
+
+  -- Guerrier : pas de poison, les jeux deviennent des jeux de pierres.
+  local _, playerClass = UnitClass("player")
+  if playerClass == "WARRIOR" then
+    L.TAB_PRESETS     = L.WARRIOR_SETS
+    L.QUICK_TITLE     = L.WARRIOR_SETS
+    L.PRESETS_CLEARED = L.WARRIOR_CLEARED
+  end
+
+  -- Les quelques textes posés au chargement des fichiers.
+  for _, refresh in ipairs(NS.localeRefreshers or {}) do pcall(refresh) end
+end
+
+NS.ApplyLocale(GetLocale())

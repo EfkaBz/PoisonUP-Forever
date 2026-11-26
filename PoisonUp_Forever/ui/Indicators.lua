@@ -11,13 +11,18 @@
 --                (rouge sans rien, estompé si bientôt expiré, sinon minuteur)
 --
 -- « Bientôt » est le seuil d'avertissement de l'onglet Timer, deux minutes par
--- défaut. Le groupe se déplace d'un bloc et se redimensionne dans les options.
+-- défaut, ou le seuil de charges de l'onglet Options (dix par défaut) : le
+-- premier des deux atteint estompe le carré. Le groupe se déplace d'un bloc et se redimensionne dans les options.
 --
 -- Sur Forever, pierre à aiguiser / huile se cumulent au poison : deux carrés de
 -- plus suivent la pierre de chaque main avec les mêmes règles.
 
 local ADDON_NAME, NS = ...
 local L = NS.L
+
+-- Halo vert (actif) : plus large et plus lumineux que les autres états.
+local GREEN_GLOW = { 0.5, 1, 0.2, 1 }
+local GREEN_SPREAD = 22
 
 local HANDS = {
   { key = "mh", slot = NS.SLOT_MAINHAND, label = "MAINHAND", windfury = true },
@@ -37,6 +42,8 @@ NS.indicators = group
 group.hint = group:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
 group.hint:SetPoint("BOTTOM", group, "TOP", 0, 4)
 group.hint:SetText(L.IND_HINT)
+NS.localeRefreshers = NS.localeRefreshers or {}
+table.insert(NS.localeRefreshers, function() group.hint:SetText(L.IND_HINT) end)
 group.hint:Hide()
 
 -- =========================================================
@@ -51,13 +58,18 @@ for index, hand in ipairs(HANDS) do
   square.icon:SetPoint("BOTTOMRIGHT", -2, 2)
   square.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
 
-  square.border = square:CreateTexture(nil, "BORDER")
-  square.border:SetPoint("TOPLEFT", -1, 1)
-  square.border:SetPoint("BOTTOMRIGHT", 1, -1)
+  -- Cadre grimoire (Widgets.lua) : la bordure et le halo disent l'état.
+  NS.W.SkinSquare(square, 14)
 
   -- Temps restant, pour savoir s'il reste dix secondes ou deux minutes.
   square.time = square:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
   square.time:SetPoint("BOTTOM", square, "BOTTOM", 0, 2)
+
+  -- Charges restantes, en haut à droite : vert pâle, ambre quand il en reste
+  -- peu.
+  square.charges = square:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
+  square.charges:SetPoint("TOPRIGHT", square, "TOPRIGHT", -3, -3)
+  square.charges:SetJustifyH("RIGHT")
 
   -- Petit badge en bas à gauche : poison ou pierre, pour distinguer les
   -- carrés d'un coup d'œil.
@@ -71,7 +83,43 @@ for index, hand in ipairs(HANDS) do
   square.badgeBorder = square:CreateTexture(nil, "OVERLAY", nil, 1)
   square.badgeBorder:SetPoint("TOPLEFT", square.badge, "TOPLEFT", -1, 1)
   square.badgeBorder:SetPoint("BOTTOMRIGHT", square.badge, "BOTTOMRIGHT", 1, -1)
-  square.badgeBorder:SetColorTexture(0, 0, 0, 0.9)
+  square.badgeBorder:SetColorTexture(0.69, 0.54, 0.31, 1)
+
+  -- Rebond quand le poison va expirer : un petit saut, une retombée qui
+  -- rebondit, puis une pause, en boucle. Une animation ne touche qu'au rendu :
+  -- l'ancrage du carré ne bouge pas.
+  local hop = square:CreateAnimationGroup()
+  hop:SetLooping("REPEAT")
+  local function Step(order, y, duration, smoothing)
+    local move = hop:CreateAnimation("Translation")
+    move:SetOrder(order)
+    move:SetOffset(0, y)
+    move:SetDuration(duration)
+    move:SetSmoothing(smoothing)
+    return move
+  end
+  square.hopSteps = {
+    Step(1, 1, 0.16, "OUT"),        -- saut
+    Step(2, -1, 0.14, "IN"),        -- retombée
+    Step(3, 0.35, 0.09, "OUT"),     -- petit rebond
+    Step(4, -0.35, 0.09, "IN"),
+  }
+  Step(5, 0, 0.9, "NONE")           -- pause
+  square.hop = hop
+
+  -- Hauteur du saut proportionnelle à la taille du carré.
+  function square:SetBounce(on)
+    if on then
+      local height = math.max(4, (self:GetHeight() or 36) * 0.22)
+      local ratios = { 1, -1, 0.35, -0.35 }
+      for index, move in ipairs(self.hopSteps) do
+        move:SetOffset(0, height * ratios[index])
+      end
+      if not self.hop:IsPlaying() then self.hop:Play() end
+    elseif self.hop:IsPlaying() then
+      self.hop:Stop()
+    end
+  end
 
   square.hand = hand
   squares[index] = square
@@ -105,25 +153,45 @@ end)
 -- =========================================================
 function NS.IndicatorEnabled(hand)
   local db = NS.DB()
-  if hand.windfury then return db.showWindfuryIndicator and true or false end
+  -- Furie-des-vents : seulement pour les classes de mêlée.
+  if hand.windfury then
+    return db.showWindfuryIndicator and (NS.UsesPoisons() or NS.IsWarrior()) and true or false
+  end
   if hand.stone then return db.showStoneIndicators and true or false end
-  -- Guerrier : pas de poison, donc pas de carrés poison.
-  if NS.IsWarrior() then return false end
+  -- Guerrier, lanceurs de sorts : pas de poison, donc pas de carrés poison.
+  if not NS.UsesPoisons() then return false end
   return true
 end
 
--- Un shaman dans le groupe ? Sans lui, pas de totem à attendre.
+-- Un shaman dans le groupe ou le raid ? Sans lui, pas de totem à attendre.
+-- Résultat gardé 5 s : en raid, c'était 40 unités interrogées chaque seconde.
+local shamanCache, shamanCacheAt
+local ScanForShaman
 local function ShamanInGroup()
+  local now = GetTime and GetTime() or 0
+  if shamanCacheAt and now - shamanCacheAt < 5 then return shamanCache end
+  shamanCache, shamanCacheAt = ScanForShaman(), now
+  return shamanCache
+end
+
+function ScanForShaman()
   if not UnitClass then return false end
-  for i = 1, 4 do
-    local unit = "party" .. i
+  local _, own = UnitClass("player")
+  if own == "SHAMAN" then return true end
+  -- Sur Forever le totem couvre tout le raid, pas seulement le groupe.
+  local raid = IsInRaid and IsInRaid()
+  for i = 1, raid and 40 or 4 do
+    local unit = (raid and "raid" or "party") .. i
     if UnitExists and UnitExists(unit) then
-      local _, class = UnitClass(unit)
-      if class == "SHAMAN" then return true end
+      local ok, _, class = pcall(UnitClass, unit)
+      if ok and not (issecretvalue and issecretvalue(class)) and class == "SHAMAN" then
+        return true
+      end
     end
   end
   return false
 end
+NS.ShamanInGroup = ShamanInGroup
 
 -- =========================================================
 -- GÉOMÉTRIE
@@ -186,11 +254,25 @@ function NS.UpdateIndicators()
     return
   end
 
+  -- Options « instance seulement » et « pêche » de l'onglet Timer : les
+  -- carrés sont des avertissements comme les autres. Déverrouillé, on les
+  -- montre quand même pour pouvoir placer le groupe.
+  if not unlocked and NS.WarningContextAllowed and not NS.WarningContextAllowed() then
+    for _, square in ipairs(squares) do
+      square:SetBounce(false)
+      square:Hide()
+    end
+    group:Hide()
+    return
+  end
+
   -- Règles d'affichage :
   --   option indicatorsAlways cochée -> tous les carrés activés, tout le
   --     temps, en combat comme hors combat (rouge, estompé ou avec minuteur) ;
   --   sinon -> ce qui va bientôt expirer (estompé), en combat comme hors
   --     combat ; et en combat, aussi ce qui manque complètement (rouge).
+  --     Option indicatorsOutOfCombat : ce qui manque est aussi montré hors
+  --     combat (arme sans poison, sans pierre).
   --     Un poison ou une pierre qui a encore du temps n'est jamais montré.
   local always = db.indicatorsAlways and true or false
   local inCombat = (InCombatLockdown and InCombatLockdown())
@@ -199,6 +281,8 @@ function NS.UpdateIndicators()
   local state = NS.enchantState or NS.WeaponEnchants()
   local threshold = (db.warnMinutes or 2) * 60
   local fade = db.indicatorFadeAlpha or 0.45
+  local chargeThreshold = db.indicatorWarnCharges or 0
+  local showCharges = db.indicatorShowCharges ~= false
   local anyVisible = false
 
   for _, square in ipairs(squares) do
@@ -210,8 +294,18 @@ function NS.UpdateIndicators()
     elseif hand.stone then
       slotState = slotState.stone or {}
     end
-    local itemID = GetInventoryItemID and GetInventoryItemID("player", hand.slot)
-    local soon = slotState.active and (slotState.remaining or 0) <= threshold
+    -- Bouclier ou objet tenu en main gauche : traité comme une main vide.
+    local itemID = NS.HasWeapon(hand.slot)
+      and GetInventoryItemID and GetInventoryItemID("player", hand.slot) or nil
+    -- Bientôt expiré : par le temps (inchangé) ou par les charges, quand le
+    -- jeu les donne et que le seuil n'est pas à 0.
+    local charges = slotState.active and slotState.charges or nil
+    local lowCharges = charges and chargeThreshold > 0 and charges <= chargeThreshold
+    local soon = slotState.active
+      and (((slotState.remaining or 0) <= threshold) or lowCharges) and true or false
+    -- Furie-des-vents : buff de raid entretenu par le totem, jamais « bientôt
+    -- expiré » ; il est là (vert) ou il manque (rouge).
+    if hand.windfury then soon = false end
 
     local show, alpha = false, 1
     if not NS.IndicatorEnabled(hand) then
@@ -220,15 +314,16 @@ function NS.UpdateIndicators()
       show = true
     elseif hand.windfury then
       -- Totem Furie-des-vents : buff de quelques secondes rafraîchi en
-      -- boucle, toujours « bientôt expiré » : seulement avec l'option, et
-      -- seulement si un shaman est dans le groupe.
-      show = (always and itemID and ShamanInGroup()) and true or false
+      -- boucle. Son option suffit (avant, il fallait aussi « toujours
+      -- afficher », et le carré n'apparaissait jamais) : montré dès que le
+      -- totem est actif, ou qu'un shaman est groupé (rouge s'il manque).
+      show = (itemID and (slotState.active or ShamanInGroup())) and true or false
     elseif itemID and watched then
       if always then
         show, alpha = true, soon and fade or 1
       elseif soon then
         show, alpha = true, fade
-      elseif inCombat and not slotState.active then
+      elseif (inCombat or db.indicatorsOutOfCombat) and not slotState.active then
         show, alpha = true, 1
       end
     end
@@ -250,17 +345,61 @@ function NS.UpdateIndicators()
 
       -- Rouge quand il n'y a plus rien, orangé quand le temps se réduit.
       if slotState.active then
-        square.border:SetColorTexture(1, 0.7, 0.2, 0.9)
-        square.time:SetText(NS.FormatTime(slotState.remaining))
-      else
-        square.border:SetColorTexture(1, 0.2, 0.2, 0.95)
+        -- Ambre qui bat quand il reste peu de temps, bronze sinon.
+        if soon then
+          square:SetTrim({ 1, 0.7, 0.25 })
+          square:SetGlow({ 1, 0.65, 0.15, 0.7 }, true)
+        else
+          square:SetTrim({ 0.69, 0.54, 0.31 })
+          square:SetGlow(GREEN_GLOW, false, GREEN_SPREAD)
+        end
+        -- Buff sans durée (totem posé) : pas de minuteur à afficher.
+        square.time:SetText(slotState.remaining and NS.FormatTime(slotState.remaining) or "")
+      elseif slotState.unknown then
+        -- Furie-des-vents en combat : auras secrètes, présence invérifiable.
+        -- On suppose le buff présent (shaman groupé) : vert, comme actif.
+        square.icon:SetDesaturated(false)
+        square:SetTrim({ 0.69, 0.54, 0.31 })
+        square:SetGlow(GREEN_GLOW, false, GREEN_SPREAD)
         square.time:SetText("")
+      else
+        square:SetTrim({ 1, 0.25, 0.2 })
+        square:SetGlow({ 1, 0.2, 0.15, 0.8 }, true)
+        square.time:SetText("")
+        -- Diagnostic : carré Furie-des-vents rouge, on note dans quel
+        -- contexte (combat, auras secrètes, réponse de chaque ID).
+        if hand.windfury and db.debug and NS.WindfuryProbe then
+          db.wfRed = NS.WindfuryProbe()
+          db.wfRed.inCombat = tostring(inCombat)
+        end
+      end
+
+      if showCharges and charges then
+        square.charges:SetText(charges)
+        if lowCharges then
+          square.charges:SetTextColor(1, 0.7, 0.25)
+        else
+          square.charges:SetTextColor(0.75, 1, 0.55)
+        end
+        square.charges:Show()
+      else
+        square.charges:Hide()
       end
 
       square:SetAlpha(alpha)
+      -- Rebond : poison / pierre bientôt expiré, ou Furie-des-vents absent
+      -- (shaman groupé mais buff manquant, carré rouge).
+      local bounce
+      if hand.windfury then
+        bounce = not slotState.active and not slotState.unknown
+      else
+        bounce = slotState.active and soon
+      end
+      square:SetBounce(bounce and not unlocked and db.indicatorsBounce ~= false)
       square:Show()
       anyVisible = true
     else
+      square:SetBounce(false)
       square:Hide()
     end
   end

@@ -40,26 +40,28 @@ local function Dress(button)
   -- le relâchement seul. Voir Core.lua.
   button:RegisterForClicks("AnyDown", "AnyUp")
 
-  button.bg = button:CreateTexture(nil, "BACKGROUND")
-  button.bg:SetAllPoints(button)
-  button.bg:SetColorTexture(0, 0, 0, 0.85)
 
   button.icon = button:CreateTexture(nil, "ARTWORK")
   button.icon:SetPoint("TOPLEFT", 2, -2)
   button.icon:SetPoint("BOTTOMRIGHT", -2, 2)
   button.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
 
-  button.border = button:CreateTexture(nil, "BORDER")
-  button.border:SetPoint("TOPLEFT", -1, 1)
-  button.border:SetPoint("BOTTOMRIGHT", 1, -1)
-  button.border:SetColorTexture(0.35, 0.35, 0.35, 0.9)
+  -- Cadre grimoire : cuir, bronze, coins ciselés (Widgets.lua).
+  NS.W.SkinSquare(button, 11, 2)
 
   button.count = button:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
   button.count:SetPoint("BOTTOMRIGHT", -2, 2)
 
-  button:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square")
+  -- Survol : lueur verte maison (Skin.lua) plutôt que le carré de Blizzard.
+  button:SetHighlightTexture(NS.Skin.MEDIA .. "Glow")
   local highlight = button:GetHighlightTexture()
-  if highlight then highlight:SetBlendMode("ADD") end
+  if highlight then
+    highlight:SetBlendMode("ADD")
+    highlight:SetVertexColor(0.55, 0.95, 0.25, 0.7)
+    highlight:ClearAllPoints()
+    highlight:SetPoint("TOPLEFT", -8, 8)
+    highlight:SetPoint("BOTTOMRIGHT", 8, -8)
+  end
 
   button:SetScript("OnEnter", function(self)
     if not self.itemID or not NS.MenuShown() then return end
@@ -157,6 +159,10 @@ function NS.BuildMenu()
 
   local entries = BestPerCategory()
   local spacing = NS.DB().menuSpacing or 0
+  local vertical = NS.DB().menuVertical and true or false
+  -- Vertical : la barre monte quand elle est au-dessus du bouton, pour que
+  -- la première icône reste la plus proche de lui ; sinon elle descend.
+  local upward = vertical and (NS.DB().menuPosition or "RIGHT"):find("^TOP") ~= nil
   local previous
 
   for index = 1, MAX_BUTTONS do
@@ -172,7 +178,19 @@ function NS.BuildMenu()
       NS.WireItemButton(button, entry.itemID)
 
       button:ClearAllPoints()
-      if previous then
+      if vertical and upward then
+        if previous then
+          button:SetPoint("BOTTOM", previous, "TOP", 0, 4 + spacing)
+        else
+          button:SetPoint("BOTTOM", menu, "BOTTOM", 0, 0)
+        end
+      elseif vertical then
+        if previous then
+          button:SetPoint("TOP", previous, "BOTTOM", 0, -(4 + spacing))
+        else
+          button:SetPoint("TOP", menu, "TOP", 0, 0)
+        end
+      elseif previous then
         button:SetPoint("LEFT", previous, "RIGHT", 4 + spacing, 0)
       else
         button:SetPoint("LEFT", menu, "LEFT", 0, 0)
@@ -187,7 +205,12 @@ function NS.BuildMenu()
 
   shown = entries
   local step = ICON_SIZE + 4 + spacing
-  menu:SetSize(math.max(1, #entries * step - spacing - 4), ICON_SIZE)
+  local length = math.max(1, #entries * step - spacing - 4)
+  if vertical then
+    menu:SetSize(ICON_SIZE, length)
+  else
+    menu:SetSize(length, ICON_SIZE)
+  end
   menu:SetScale(NS.DB().menuScale or 1.0)
 
   -- L'ancrage se fige ici : en combat, plus question de déplacer la barre.
@@ -212,10 +235,53 @@ end
 -- fait office d'ouverture tant que dure le combat. À la sortie, on revient à
 -- un vrai Show/Hide.
 local combatOpen = false
+local closing = false      -- fondu de fermeture en cours (hors combat)
+
+-- =========================================================
+-- ANIMATIONS (Skin.lua)
+-- =========================================================
+-- SetAlpha reste permis en combat, même sur des boutons sécurisés : seules
+-- les opacités bougent ici, jamais la position, la taille ni Show/Hide.
+local S = NS.Skin
+local STAGGER, ICON_FADE = 0.035, 0.16
+
+local function IconAlpha(alpha)
+  for index = 1, #shown do
+    local button = _G["PoisonUpForever_Item" .. index]
+    if button then button:SetAlpha(alpha) end
+  end
+end
+
+-- Ouverture : les icônes apparaissent l'une après l'autre en fondu, depuis le
+-- bouton.
+local function FadeIn()
+  closing = false
+  menu:SetAlpha(1)
+  IconAlpha(0)
+  local count = #shown
+  local total = ICON_FADE + STAGGER * math.max(0, count - 1)
+  S.Tween(menu, { dur = total, from = 0, to = total, ease = "linear", set = function(t)
+    for index = 1, count do
+      local button = _G["PoisonUpForever_Item" .. index]
+      if button then
+        local p = math.max(0, math.min(1, (t - (index - 1) * STAGGER) / ICON_FADE))
+        button:SetAlpha(S.Ease.outCubic(p))
+      end
+    end
+  end, done = function() IconAlpha(1) end })
+end
+
+-- Fermeture : toute la barre s'efface, puis done().
+local function FadeOut(done)
+  IconAlpha(1)
+  S.Tween(menu, { dur = 0.18, from = menu:GetAlpha(), to = 0, set = function(v)
+    menu:SetAlpha(v)
+  end, done = done })
+end
 
 function NS.MenuShown()
   if InCombatLockdown() then return menu:IsShown() and combatOpen end
-  return menu:IsShown()
+  return menu:IsShown() and not closing
 end
 
 function NS.OpenMenu()
@@ -223,24 +289,33 @@ function NS.OpenMenu()
   if InCombatLockdown() then
     if not menu:IsShown() or #shown == 0 then return end
     combatOpen = true
-    menu:SetAlpha(1)
+    FadeIn()
     return
   end
   if not NS.BuildMenu() then
     NS.Print(L.EMPTY)
     return
   end
-  menu:SetAlpha(1)
   menu:Show()
+  FadeIn()
 end
 
 function NS.CloseMenu()
   if InCombatLockdown() then
     combatOpen = false
-    menu:SetAlpha(0)
+    FadeOut()
     return
   end
-  menu:Hide()
+  if not menu:IsShown() or closing then return end
+  closing = true
+  FadeOut(function()
+    closing = false
+    -- Le combat a pu commencer pendant le fondu : Hide n'est alors plus
+    -- permis, la barre reste là, transparente.
+    if InCombatLockdown() then return end
+    menu:Hide()
+    menu:SetAlpha(1)
+  end)
 end
 
 function NS.ToggleMenu()
@@ -249,7 +324,11 @@ end
 
 -- Appelé sur PLAYER_REGEN_DISABLED, dernier instant où Show est permis.
 function NS.MenuEnterCombat()
-  combatOpen = menu:IsShown()
+  combatOpen = menu:IsShown() and not closing
+  if closing then
+    S.StopTween(menu)
+    closing = false
+  end
   if not NS.IsEnabled() or #shown == 0 then return end
   if not combatOpen then menu:SetAlpha(0) end
   menu:Show()
@@ -257,6 +336,8 @@ end
 
 -- Appelé sur PLAYER_REGEN_ENABLED : la barre retrouve un état normal.
 function NS.MenuLeaveCombat()
+  S.StopTween(menu)
+  IconAlpha(1)
   if combatOpen then menu:SetAlpha(1) else menu:Hide(); menu:SetAlpha(1) end
 end
 
@@ -284,5 +365,8 @@ end
 function NS.RefreshSecureState()
   if InCombatLockdown() then return end
   NS.BuildMenu()
+  -- Lanceurs de sorts : l'addon s'active ou se masque selon les huiles en
+  -- sac, il faut donc revoir la visibilité des boutons.
+  if NS.UpdateButtons then NS.UpdateButtons() end
   if NS.UpdateQuickMacro then NS.UpdateQuickMacro() end
 end

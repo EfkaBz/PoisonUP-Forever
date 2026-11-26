@@ -35,6 +35,24 @@ function NS.IsWarrior()
 end
 if NS.IsWarrior() then NS.ICON = NS.STONE_ICON end
 
+-- Seul le voleur pose des poisons. Les autres classes (guerrier, lanceurs de
+-- sorts avec huiles de sorcier / de mana) n'ont que pierres et huiles.
+function NS.UsesPoisons()
+  local _, class = UnitClass("player")
+  return class == "ROGUE"
+end
+
+-- Ce que l'addon surveille sur une main : le poison pour un voleur, la
+-- pierre / l'huile pour les autres classes (minuteur du bouton, alertes).
+function NS.TrackedEnchant(slotState)
+  slotState = slotState or {}
+  if NS.UsesPoisons() then return slotState end
+  return slotState.stone or { active = false }
+end
+
+-- Icône des classes à huiles : celle de l'Huile de sorcier brillante.
+NS.OIL_ITEM = 20749
+
 -- Emplacements d'inventaire visés par les macros.
 NS.SLOT_MAINHAND = 16
 NS.SLOT_OFFHAND = 17
@@ -66,6 +84,7 @@ local DB_DEFAULTS = {
   menuScale = 1.0,
   menuPosition = "RIGHT",   -- une des huit positions autour du bouton
   menuSpacing = 0,          -- -20 à 20
+  menuVertical = false,     -- icônes empilées verticalement
   tooltipMode = "full",     -- "full" ou "name"
   overwritePresets = false,
   categoryOrder = nil,      -- ordre personnalisé des types (Button Sorting)
@@ -91,6 +110,11 @@ local DB_DEFAULTS = {
   indicatorsAnchor = nil,
   indicatorSize = 48,
   indicatorFadeAlpha = 0.45,   -- opacité quand le poison va bientôt expirer
+  indicatorShowCharges = true, -- nombre de charges dans le coin du carré
+  indicatorWarnCharges = 10,   -- seuil de charges qui estompe le carré (0 = jamais)
+  language = nil,             -- nil : langue du client
+  indicatorsBounce = true,     -- les carrés rebondissent quand le poison va expirer
+  indicatorsOutOfCombat = false, -- carrés « plus de poison / pierre » aussi hors combat
   indicatorsAlways = false,    -- carré « plus de poison » aussi hors combat
   showStoneIndicators = true,  -- deux carrés de plus pour pierre / huile
   showWindfuryIndicator = true, -- carré du totem Furie-des-vents (main droite)
@@ -259,10 +283,21 @@ end
 -- Sur Forever, poison et pierre (ou huile) se cumulent : l'infobulle peut
 -- porter deux lignes minutées. On les trie : une ligne qui reprend le nom d'un
 -- poison connu est le poison, toute autre ligne minutée est la pierre/huile.
-local poisonNames
+local poisonNames, poisonNamesAt
+
+-- Appelée sur GET_ITEM_INFO_RECEIVED d'un de nos objets : un nom vient
+-- d'arriver, la liste sera refaite au prochain besoin.
+function NS.ResetPoisonNames() poisonNames = nil end
 
 local function PoisonNames()
-  if poisonNames and #poisonNames > 0 then return poisonNames end
+  -- Liste vide (noms pas encore en cache) : on ne la refait qu'une fois toutes
+  -- les 30 s au plus. Avant, chaque ligne minutée de chaque infobulle relançait
+  -- une demande de nom pour tout le catalogue, à chaque seconde.
+  local now = GetTime and GetTime() or 0
+  if poisonNames and (#poisonNames > 0 or now - (poisonNamesAt or 0) < 30) then
+    return poisonNames
+  end
+  poisonNamesAt = now
   poisonNames = {}
   local getName = C_Item and C_Item.GetItemNameByID
   if not getName then return poisonNames end
@@ -299,9 +334,152 @@ end
 -- Le totem Furie-des-vents pose lui aussi un enchantement minuté sur l'arme.
 local function IsWindfuryLine(text)
   local lower = text:lower()
-  return lower:find("windfury", 1, true) or lower:find("furie-des-vents", 1, true)
-    or lower:find("windzorn", 1, true) or lower:find("viento furioso", 1, true)
+  -- Tirets et espaces confondus : « Furie-des-vents », « Furie des vents »...
+  local flat = lower:gsub("[%-%s]+", " ")
+  return flat:find("windfury", 1, true) or flat:find("furie des vents", 1, true)
+    or flat:find("windzorn", 1, true) or flat:find("viento furioso", 1, true)
+    or flat:find("furia del vento", 1, true) or flat:find("fúria dos ventos", 1, true)
+    or flat:find("неистовства ветра", 1, true)
     or false
+end
+
+-- Identifiants d'enchantement Furie-des-vents (totem 563/564/1783/2638/2639,
+-- arme 283/284/525/1669/2636/3785-3787) : repli quand l'infobulle ne le
+-- nomme pas.
+local WINDFURY_ENCHANTS = {
+  [563] = true, [564] = true, [1783] = true, [2638] = true, [2639] = true,
+  [283] = true, [284] = true, [525] = true, [1669] = true, [2636] = true,
+  [3785] = true, [3786] = true, [3787] = true,
+}
+NS.WINDFURY_ENCHANTS = WINDFURY_ENCHANTS
+
+-- Sur Forever, le totem Furie-des-vents n'est plus un enchantement d'arme de
+-- quelques secondes : c'est un buff de raid posé sur le joueur. Et les auras
+-- y sont « secrètes » : impossible de parcourir les buffs et de lire leur nom
+-- ou leur icône. Seule voie, celle de ForeverAuras : demander chaque ID de
+-- sort connu avec C_UnitAuras.GetUnitAuraBySpellID.
+-- Relevé en jeu : Forever pose « Totem Furie-des-vents » sous l'ID 10612.
+local WINDFURY_AURAS = {
+  8512, 8515, 8516, 10608, 10609, 10610, 10612, 10613, 10614, 27621, 78159,
+}
+-- Noms du buff dans la langue du client, tirés des sorts : repli quand
+-- l'identifiant posé par Forever n'est dans aucune liste.
+local WINDFURY_NAME_SPELLS = { 8512, 8232 }
+NS.WINDFURY_AURAS = WINDFURY_AURAS
+
+local function Secret(value)
+  return issecretvalue and issecretvalue(value) or false
+end
+
+-- Dernière réponse lisible : quand les auras deviennent secrètes (en combat),
+-- l'état connu juste avant est gardé, minuteur compris.
+local lastWindfury, lastWindfuryAt
+
+local function AurasSecret()
+  if not (C_Secrets and C_Secrets.ShouldAurasBeSecret) then return false end
+  local ok, secret = pcall(C_Secrets.ShouldAurasBeSecret)
+  return ok and not Secret(secret) and secret and true or false
+end
+
+-- Renvoie { remaining (nil si sans durée), label } ou nil.
+local function WindfuryAura()
+  if not (C_UnitAuras and C_UnitAuras.GetUnitAuraBySpellID) then return nil end
+  local now = GetTime and GetTime() or 0
+  local unreadable = false
+  for _, spellID in ipairs(WINDFURY_AURAS) do
+    local ok, aura = pcall(C_UnitAuras.GetUnitAuraBySpellID, "player", spellID)
+    if not ok then
+      -- Appel refusé (auras verrouillées en combat) : illisible, pas absent.
+      unreadable = true
+    elseif aura ~= nil then
+      if Secret(aura) then
+        -- Secrète (en combat) mais renvoyée : le buff EST là, seuls son nom
+        -- et sa durée sont cachés. Avant, c'était pris pour « illisible » et
+        -- le carré restait rouge jusqu'à la fin du combat.
+        lastWindfury, lastWindfuryAt = { label = "Windfury (buff " .. spellID .. ")" }, now
+        return lastWindfury
+      else
+        local expiration = aura.expirationTime
+        local remaining
+        if not Secret(expiration) and type(expiration) == "number" and expiration > 0 then
+          remaining = math.max(0, expiration - now)
+        end
+        local name = aura.name
+        local label = ((not Secret(name) and type(name) == "string") and name or "Windfury")
+          .. " (buff " .. spellID .. ")"
+        lastWindfury, lastWindfuryAt = { remaining = remaining, label = label }, now
+        return lastWindfury
+      end
+    end
+  end
+  -- Aucun identifiant connu : recherche par nom (« Totem Furie-des-vents »,
+  -- « Arme Furie-des-vents »...), quel que soit l'identifiant réel.
+  if C_UnitAuras.GetAuraDataBySpellName and C_Spell and C_Spell.GetSpellName then
+    for _, nameSpell in ipairs(WINDFURY_NAME_SPELLS) do
+      local okName, name = pcall(C_Spell.GetSpellName, nameSpell)
+      if okName and type(name) == "string" and not Secret(name) then
+        local ok, aura = pcall(C_UnitAuras.GetAuraDataBySpellName, "player", name, "HELPFUL")
+        if not ok then
+          unreadable = true
+        elseif aura ~= nil then
+          if Secret(aura) then
+            lastWindfury, lastWindfuryAt = { label = name }, now
+            return lastWindfury
+          else
+            local expiration = aura.expirationTime
+            local remaining
+            if not Secret(expiration) and type(expiration) == "number" and expiration > 0 then
+              remaining = math.max(0, expiration - now)
+            end
+            local id = aura.spellId
+            lastWindfury, lastWindfuryAt = {
+              remaining = remaining,
+              label = name .. " (buff " .. ((not Secret(id) and tostring(id)) or "?") .. ")",
+            }, now
+            return lastWindfury
+          end
+        end
+      end
+    end
+  end
+  -- Rien de lisible alors que les auras sont secrètes : on garde l'état
+  -- d'avant, tant que son minuteur (s'il en a un) n'est pas écoulé.
+  if (unreadable or AurasSecret()) and lastWindfury then
+    local copy = { label = lastWindfury.label .. " (mémorisé)" }
+    if lastWindfury.remaining then
+      copy.remaining = lastWindfury.remaining - (now - lastWindfuryAt)
+      if copy.remaining <= 0 then return nil end
+    end
+    return copy
+  end
+  -- Auras secrètes (combat) et rien en mémoire : le jeu répond « absent »
+  -- même quand le buff est là. L'état est inconnu, pas absent : second
+  -- retour à true, le carré reste neutre au lieu de clignoter en rouge.
+  if unreadable or AurasSecret() then return nil, true end
+  lastWindfury = nil
+  return nil
+end
+NS.WindfuryAura = WindfuryAura
+
+-- Diagnostic : réponse brute de chaque ID, et si les auras sont secrètes.
+function NS.WindfuryProbe()
+  local probe = { time = date and date("%H:%M:%S") or "", ids = {} }
+  local ok, secret = pcall(function() return C_Secrets and C_Secrets.ShouldAurasBeSecret() end)
+  probe.aurasSecret = ok and (Secret(secret) and "secret" or tostring(secret)) or "erreur"
+  probe.cache = lastWindfury and tostring(lastWindfury.label) or "aucun"
+  for _, spellID in ipairs(WINDFURY_AURAS) do
+    local okCall, aura = pcall(C_UnitAuras.GetUnitAuraBySpellID, "player", spellID)
+    local text
+    if not okCall then text = "erreur: " .. tostring(aura)
+    elseif aura == nil then text = nil
+    elseif Secret(aura) then text = "secret"
+    else
+      text = "présent | nom=" .. (Secret(aura.name) and "secret" or tostring(aura.name))
+        .. " | exp=" .. (Secret(aura.expirationTime) and "secret" or tostring(aura.expirationTime))
+    end
+    if text then probe.ids[#probe.ids + 1] = spellID .. " : " .. text end
+  end
+  return probe
 end
 
 -- La durée est lue quelle que soit la langue : « (30 min) », « (30 Min.) »
@@ -320,24 +498,70 @@ local function StartsWithAny(unit, list)
   return false
 end
 
-local function LineDuration(text)
-  local number, unit
-  for n, u in text:gmatch("%((%d+)%s*([^%d%(%)]-)%)") do
-    number, unit = n, u
-  end
-  if not number or not unit or unit == "" then return nil end
-  unit = unit:lower():gsub("^%s+", "")
-  number = tonumber(number)
-  -- Les minutes d'abord : « мин » commence par « м », pas par « с ».
-  if StartsWithAny(unit, MINUTE_UNITS) then return number * 60 end
-  if StartsWithAny(unit, HOUR_UNITS) then return number * 3600 end
-  if StartsWithAny(unit, SECOND_UNITS) then return number end
-  -- Tout autre texte entre parenthèses (« (3 charges) »...) n'est pas une durée.
-  return nil
+-- Lit une ligne d'enchantement : sa durée et, quand le jeu l'affiche, ses
+-- charges. « Poison instantané (29 min) (115 charges) » : chaque parenthèse
+-- est examinée, la première durée trouvée est gardée (avant, seule la
+-- dernière parenthèse comptait, et une ligne finissant par ses charges
+-- n'était plus reconnue du tout). Toute parenthèse « nombre + mot » qui n'est
+-- pas une durée est prise pour des charges, quelle que soit la langue
+-- (« charges », « Aufladungen », « cargas », « заряда »...).
+-- Le texte brut de l'infobulle garde les codes d'affichage : couleurs, et
+-- surtout la grammaire « |4Charge:Charges; » que le chat résout à l'écran.
+-- Le « 4 » de ce code se faisait lire comme un nombre de charges, et cassait
+-- la parenthèse « (85 |4Charge:Charges;) ». On ne garde que le texte affiché.
+local function PlainText(text)
+  return (text:gsub("|4[^:;]*:([^;]*);", "%1")
+    :gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""))
 end
 
--- Renvoie { poison = {remaining, label} ou nil, stone = {remaining, label} ou nil }.
-local function EnchantsFromTooltip(slot)
+local function LineDuration(text)
+  text = PlainText(text)
+  local duration, charges
+  for n, u in text:gmatch("%((%d+)%s*([^%d%(%)]-)%)") do
+    local number = tonumber(n)
+    local unit = u:lower():gsub("^%s+", "")
+    local seconds
+    if unit ~= "" then
+      -- Les minutes d'abord : « мин » commence par « м », pas par « с ».
+      if StartsWithAny(unit, MINUTE_UNITS) then seconds = number * 60
+      elseif StartsWithAny(unit, HOUR_UNITS) then seconds = number * 3600
+      elseif StartsWithAny(unit, SECOND_UNITS) then seconds = number
+      end
+    end
+    if seconds then
+      duration = duration or seconds
+    elseif unit ~= "" and not charges then
+      charges = number
+    end
+  end
+  return duration, charges
+end
+
+-- Le mot « charge » dans la langue du client, tiré de ITEM_SPELL_CHARGES
+-- (« %d |4Charge:Charges; », « %d |4заряд:заряда:зарядов; »...) : la
+-- première forme sert de racine, contenue dans toutes les autres.
+local chargeWord
+local function ChargeWord()
+  if chargeWord then return chargeWord end
+  local text = type(ITEM_SPELL_CHARGES) == "string" and ITEM_SPELL_CHARGES or ""
+  text = text:gsub("|4([^:;]+)[^;]*;", "%1"):gsub("%%d", ""):gsub("[%(%)]", "")
+  text = text:lower():gsub("^%s+", ""):gsub("%s+$", "")
+  chargeWord = (text ~= "") and text or "charge"
+  return chargeWord
+end
+
+-- Ligne de charges à part (« 85 Charges ») : le nombre, ou nil.
+local function ChargesLine(text)
+  local lower = PlainText(text):lower()
+  local word = ChargeWord()
+  if not (lower:find(word, 1, true) or lower:find("charge", 1, true)) then return nil end
+  return tonumber(lower:match("(%d+)"))
+end
+
+-- Renvoie { poison = {remaining, charges, label} ou nil, stone = {...} ou nil }.
+-- apiRemaining : durée (s) que GetWeaponEnchantInfo donne pour cette main, ou
+-- nil. Elle sert à départager plusieurs lignes prises pour du poison.
+local function EnchantsFromTooltip(slot, apiRemaining)
   local found = {}
   if not (C_TooltipInfo and C_TooltipInfo.GetInventoryItem) then return found end
 
@@ -345,19 +569,60 @@ local function EnchantsFromTooltip(slot)
   if not ok or type(data) ~= "table" then return found end
   if TooltipUtil and TooltipUtil.SurfaceArgs then pcall(TooltipUtil.SurfaceArgs, data) end
 
+  -- Toutes les lignes minutées d'abord, le tri ensuite. Avant, la première
+  -- ligne prise pour du poison l'emportait : avec deux enchantements minutés
+  -- sur la même arme, le carré et le bouton affichaient celui de l'autre
+  -- enchantement (3 min / 10 charges au lieu de 27 min).
+  local timed, last = {}, nil
   for _, line in ipairs(data.lines or {}) do
     if TooltipUtil and TooltipUtil.SurfaceArgs then pcall(TooltipUtil.SurfaceArgs, line) end
     local text = line.leftText
     if type(text) == "string" then
-      local remaining = LineDuration(text)
+      local remaining, charges = LineDuration(text)
       if remaining then
-        local key = (IsWindfuryLine(text) and "windfury")
-          or (IsPoisonLine(text) and "poison") or "stone"
-        if not found[key] then
-          found[key] = { remaining = remaining, label = text }
-        end
+        local entry = {
+          remaining = remaining, charges = charges, label = text,
+          kind = (IsWindfuryLine(text) and "windfury")
+            or (IsPoisonLine(text) and "poison") or "stone",
+        }
+        timed[#timed + 1] = entry
+        last = entry
+      else
+        -- Les charges peuvent suivre sur leur propre ligne, juste sous
+        -- l'enchantement : elles lui reviennent. Plus bas, ce n'est plus lui.
+        if last and not last.charges then last.charges = ChargesLine(text) end
+        last = nil
       end
     end
+  end
+
+  local poisons = {}
+  for _, entry in ipairs(timed) do
+    if entry.kind == "windfury" and not found.windfury then
+      found.windfury = entry
+    elseif entry.kind == "poison" then
+      poisons[#poisons + 1] = entry
+    end
+  end
+
+  -- Plusieurs lignes « poison » : celle dont la durée colle le mieux à celle
+  -- de l'API est le vrai poison de cette main.
+  local chosen = poisons[1]
+  if #poisons > 1 and apiRemaining and apiRemaining > 0 then
+    local best
+    for _, entry in ipairs(poisons) do
+      local gap = math.abs(entry.remaining - apiRemaining)
+      if not best or gap < best then best, chosen = gap, entry end
+    end
+  end
+  found.poison = chosen
+
+  -- La pierre / l'huile : une ligne reconnue comme telle. Les autres lignes
+  -- « poison » écartées sont ignorées : ce sont des enchantements temporaires
+  -- étrangers à l'addon (ex. le bonus d'arme du donjon de la Terrasse du
+  -- Façonneur, 3 min / 10 charges), ni poison ni pierre.
+  for _, entry in ipairs(timed) do
+    if entry.kind == "stone" then found.stone = entry; break end
   end
   return found
 end
@@ -383,9 +648,9 @@ function NS.WeaponEnchants()
     local slot = {
       active = results[flagIndex] and true or false,
       remaining = (tonumber(results[flagIndex + 1]) or 0) / 1000,
-      charges = results[flagIndex + 2],
     }
-    local tooltip = EnchantsFromTooltip(inventorySlot)
+    local tooltip = EnchantsFromTooltip(inventorySlot,
+      slot.active and slot.remaining > 0 and slot.remaining or nil)
     -- Repli sur l'infobulle quand la fonction ne rapporte rien, ce qui est le
     -- cas permanent sur ce client.
     -- L'API ne dit pas QUEL enchantement est posé : une pierre seule la fait
@@ -395,26 +660,54 @@ function NS.WeaponEnchants()
       slot.fromTooltip = true
       if tooltip.poison then
         slot.active, slot.remaining, slot.label = true, tooltip.poison.remaining, tooltip.poison.label
+        -- Charges : l'infobulle seulement. Celles de l'API sont fausses sur
+        -- ce client (4 annoncées pour 85 réelles), comme le reste de ses
+        -- réponses.
+        slot.charges = tooltip.poison.charges
       else
-        slot.active, slot.remaining, slot.label = false, 0, nil
+        slot.active, slot.remaining, slot.label, slot.charges = false, 0, nil, nil
       end
     end
     -- La pierre / l'huile, suivie à part puisqu'elle se cumule au poison.
     slot.stone = tooltip.stone and {
-      active = true, remaining = tooltip.stone.remaining, label = tooltip.stone.label,
+      active = true, remaining = tooltip.stone.remaining,
+      charges = tooltip.stone.charges, label = tooltip.stone.label,
     } or { active = false }
-    slot.windfury = tooltip.windfury and {
-      active = true, remaining = tooltip.windfury.remaining, label = tooltip.windfury.label,
-    } or { active = false }
+    -- Furie-des-vents (main droite) : le buff de raid de Forever d'abord,
+    -- puis l'ancien enchantement d'arme (infobulle, identifiant de l'API).
+    local wf, wfUnknown
+    -- Les auras ne sont interrogées que si le carré Furie-des-vents est
+    -- activé : onze requêtes par seconde sinon, pour un carré invisible.
+    if inventorySlot == NS.SLOT_MAINHAND then
+      if NS.DB().showWindfuryIndicator then wf, wfUnknown = WindfuryAura() end
+      wf = wf or tooltip.windfury
+      if not wf then
+        local enchantID = (offset == 5) and tonumber(results[4]) or nil
+        if enchantID and WINDFURY_ENCHANTS[enchantID] and results[1] then
+          wf = { remaining = (tonumber(results[2]) or 0) / 1000, label = "enchant " .. enchantID }
+        end
+      end
+    end
+    slot.windfury = wf and {
+      active = true, remaining = wf.remaining, label = wf.label,
+    } or { active = false, unknown = wfUnknown or nil }
     return slot
   end
 
   return { mh = Slot(1, NS.SLOT_MAINHAND), oh = Slot(offset, NS.SLOT_OFFHAND) }
 end
 
+-- Une ARME, pas seulement un objet : un bouclier ou un objet tenu en main
+-- gauche (classe « armure ») ne prend ni poison ni pierre, il ne doit donc
+-- déclencher ni avertissement ni carré. Classe 2 = arme.
+local WEAPON_CLASS = 2
 function NS.HasWeapon(slot)
   local id = GetInventoryItemID and GetInventoryItemID("player", slot)
-  return id ~= nil
+  if not id then return false end
+  if not (C_Item and C_Item.GetItemInfoInstant) then return true end
+  local ok, _, _, _, _, _, classID = pcall(C_Item.GetItemInfoInstant, id)
+  if not ok or classID == nil then return true end
+  return classID == WEAPON_CLASS
 end
 
 -- Nom de l'objet équipé dans un emplacement, ou nil. Un poison appliqué sur un
@@ -476,5 +769,7 @@ function NS.IsEnabled()
   local db = NS.DB()
   if db.enabled ~= nil then return db.enabled end
   local _, class = UnitClass("player")
-  return class == "ROGUE" or class == "WARRIOR"
+  if class == "ROGUE" or class == "WARRIOR" then return true end
+  -- Autres classes : actif dès qu'une huile ou une pierre est dans les sacs.
+  return NS.Inventory and #NS.Inventory() > 0 or false
 end

@@ -38,6 +38,8 @@ aura.text:SetTextColor(1, 0.4, 0.4)
 aura.hint = aura:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
 aura.hint:SetPoint("BOTTOM", aura, "TOP", 0, 2)
 aura.hint:SetText(L.AURA_HINT)
+NS.localeRefreshers = NS.localeRefreshers or {}
+table.insert(NS.localeRefreshers, function() aura.hint:SetText(L.AURA_HINT) end)
 
 aura:SetScript("OnDragStart", function(self)
   if NS.DB().auraLocked then return end
@@ -45,18 +47,28 @@ aura:SetScript("OnDragStart", function(self)
   self.isMoving = true
 end)
 
+-- Position gérée par l'addon : le cache de disposition du client ne doit pas
+-- la rétablir de son côté au chargement.
+if aura.SetDontSavePosition then aura:SetDontSavePosition(true) end
+
+-- Le cadre a sa propre échelle (0.7 par défaut). Les décalages de SetPoint et
+-- GetCenter sont exprimés dans cette échelle : on enregistre le centre en
+-- unités d'UIParent (drapeau ui), pour que la position ne dépende pas de
+-- l'échelle choisie ensuite. L'ancien calcul multipliait par l'échelle une
+-- seconde fois, et le cadre sautait vers le coin bas-gauche à chaque lâcher.
 aura:SetScript("OnDragStop", function(self)
   if not self.isMoving then return end
   self:StopMovingOrSizing()
   self.isMoving = false
-  local left, bottom = self:GetLeft(), self:GetBottom()
-  if left and bottom then
-    local ratio = self:GetEffectiveScale() / UIParent:GetEffectiveScale()
-    self:ClearAllPoints()
-    self:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", left * ratio, bottom * ratio)
+  local cx, cy = self:GetCenter()
+  local px, py = UIParent:GetCenter()
+  if cx and cy and px and py then
+    local scale = self:GetScale()
+    NS.DB().auraAnchor = {
+      point = "CENTER", x = cx * scale - px, y = cy * scale - py, ui = true,
+    }
   end
-  local point, _, _, x, y = self:GetPoint(1)
-  if point then NS.DB().auraAnchor = { point = point, x = x, y = y } end
+  NS.UpdateAura()
 end)
 
 local hideTimer
@@ -77,18 +89,28 @@ end
 
 function NS.UpdateAura()
   local db = NS.DB()
-  aura:SetScale(db.auraScale or 0.7)
+  local scale = db.auraScale or 0.7
+  if scale <= 0 then scale = 0.7 end
+  aura:SetScale(scale)
   aura:SetAlpha(db.auraAlpha or 1)
 
   aura:ClearAllPoints()
   local anchor = db.auraAnchor
   if type(anchor) == "table" and anchor.point then
-    aura:SetPoint(anchor.point, UIParent, anchor.point, anchor.x or 0, anchor.y or 0)
+    -- Les ancres « ui » sont en unités d'UIParent ; les anciennes étaient
+    -- directement dans l'échelle du cadre.
+    local factor = anchor.ui and (1 / scale) or 1
+    aura:SetPoint(anchor.point, UIParent, anchor.point,
+      (anchor.x or 0) * factor, (anchor.y or 0) * factor)
   else
     aura:SetPoint("CENTER", UIParent, "CENTER", 0, 180)
   end
 
   local unlocked = not db.auraLocked
+  -- Déverrouillé, le cadre passe au premier plan comme les carrés d'arme :
+  -- sinon les cadres d'autres addons captent le clic à sa place.
+  aura:SetFrameStrata(unlocked and "FULLSCREEN_DIALOG" or "HIGH")
+  aura:SetToplevel(unlocked)
   aura:EnableMouse(unlocked)
   -- RegisterForDrag refuse nil : pour retirer le glisser, il faut l'appeler
   -- sans aucun argument.

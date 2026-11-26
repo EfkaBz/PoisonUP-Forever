@@ -26,23 +26,25 @@ button:RegisterForClicks("AnyDown", "AnyUp")
 button:RegisterForDrag("LeftButton")
 NS.quickButton = button
 
-button.bg = button:CreateTexture(nil, "BACKGROUND")
-button.bg:SetAllPoints(button)
-button.bg:SetColorTexture(0, 0, 0, 0.85)
 
 button.icon = button:CreateTexture(nil, "ARTWORK")
 button.icon:SetPoint("TOPLEFT", 2, -2)
 button.icon:SetPoint("BOTTOMRIGHT", -2, 2)
 button.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
 
-button.border = button:CreateTexture(nil, "BORDER")
-button.border:SetPoint("TOPLEFT", -1, 1)
-button.border:SetPoint("BOTTOMRIGHT", 1, -1)
-button.border:SetColorTexture(0.7, 0.55, 0.2, 0.9)
+-- Cadre grimoire : cuir, bronze, coins ciselés (Widgets.lua).
+NS.W.SkinSquare(button, 14)
 
-button:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square")
+-- Survol : lueur verte maison (Skin.lua) plutôt que le carré de Blizzard.
+button:SetHighlightTexture(NS.Skin.MEDIA .. "Glow")
 local highlight = button:GetHighlightTexture()
-if highlight then highlight:SetBlendMode("ADD") end
+if highlight then
+  highlight:SetBlendMode("ADD")
+  highlight:SetVertexColor(0.55, 0.95, 0.25, 0.7)
+  highlight:ClearAllPoints()
+  highlight:SetPoint("TOPLEFT", -8, 8)
+  highlight:SetPoint("BOTTOMRIGHT", 8, -8)
+end
 
 -- =========================================================
 -- DÉPLACEMENT
@@ -94,25 +96,19 @@ button:SetScript("OnLeave", function() GameTooltip:Hide() end)
 -- =========================================================
 -- CÂBLAGE ET VISIBILITÉ
 -- =========================================================
--- L'icône reprend celle du poison de main droite du jeu « Défaut », pour que
--- le bouton dise d'un coup d'œil ce qu'il va appliquer.
+-- L'icône est l'image dédiée du bouton (data\madia), grisée tant que le
+-- jeu « Défaut » est vide.
+local SET_ICON = "Interface\\AddOns\\PoisonUp_Forever\\data\\madia\\poisonset_button"
 local function RefreshIcon()
   -- Guerrier : bouton à part, toujours la pierre à aiguiser.
-  if NS.IsWarrior() then
-    button.icon:SetTexture(NS.STONE_ICON)
+  if not NS.UsesPoisons() then
+    button.icon:SetTexture(NS.ICON)
     button.icon:SetDesaturated(false)
     return
   end
   local preset = NS.Preset("default")
-  local itemID = preset.mh or preset.oh
-  if itemID then
-    local _, icon = NS.ItemInfo(itemID)
-    button.icon:SetTexture(icon)
-    button.icon:SetDesaturated(false)
-  else
-    button.icon:SetTexture(NS.ICON)
-    button.icon:SetDesaturated(true)
-  end
+  button.icon:SetTexture(SET_ICON)
+  button.icon:SetDesaturated(not (preset.mh or preset.oh))
 end
 
 function NS.UpdateQuickMacro()

@@ -1,7 +1,7 @@
 -- Button.lua - PoisonUp (Forever) - par Daeler
 -- Le bouton libre et le bouton de mini-carte.
 --
--- Comme la version TBC : une pastille ronde à anneau doré, que l'on
+-- Une pastille ronde à anneau de bronze, dans le thème grimoire des options, que l'on
 -- pose où l'on veut sur l'interface ancré à UIParent,
 -- avec en option un second bouton accroché à la mini-carte. Les deux ouvrent
 -- la même barre de poisons ; l'onglet Menu décide duquel elle sort.
@@ -9,15 +9,13 @@
 local ADDON_NAME, NS = ...
 local L = NS.L
 
-local RING = "Interface\\Minimap\\MiniMap-TrackingBorder"
 local MASK = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
 
 -- =========================================================
 -- FABRIQUE COMMUNE
 -- =========================================================
--- Le masque rend l'icône ronde, l'anneau par-dessus lui donne sa bordure
--- dorée : c'est l'aspect des boutons de mini-carte, et celui du bouton libre
--- de la version TBC.
+-- Le masque rend l'icône ronde, l'anneau de bronze (Widgets.lua) lui donne sa
+-- bordure.
 local function DressRoundButton(button, size)
   button:SetSize(size, size)
   button:RegisterForClicks("AnyDown", "AnyUp")
@@ -36,13 +34,14 @@ local function DressRoundButton(button, size)
     button.mask = mask
   end
 
-  button.ring = button:CreateTexture(nil, "OVERLAY")
-  button.ring:SetTexture(RING)
-  button.ring:SetPoint("CENTER", button, "CENTER", 10, -10)
+  -- Disque de cuir, anneau de bronze et halo vert : même thème que la fenêtre.
+  NS.W.SkinRound(button)
 
-  button.glow = button:CreateTexture(nil, "OVERLAY")
-  button.glow:SetTexture("Interface\\Buttons\\CheckButtonGlow")
-  button.glow:SetVertexColor(1, 0.2, 0.2)
+  -- Alerte d'expiration : halo rouge qui clignote (NS.FlashButton).
+  button.glow = button:CreateTexture(nil, "OVERLAY", nil, 4)
+  button.glow:SetTexture(NS.Skin.MEDIA .. "Glow")
+  button.glow:SetBlendMode("ADD")
+  button.glow:SetVertexColor(1, 0.25, 0.2)
   button.glow:Hide()
 
   -- Minuteurs des deux mains, en haut et en bas de la pastille.
@@ -53,11 +52,9 @@ local function DressRoundButton(button, size)
 
   function button:ApplySize(newSize)
     self:SetSize(newSize, newSize)
-    self.icon:SetSize(newSize * 0.62, newSize * 0.62)
-    self.ring:SetSize(newSize * 1.75, newSize * 1.75)
-    self.ring:ClearAllPoints()
-    self.ring:SetPoint("CENTER", self, "CENTER", newSize * 0.33, -newSize * 0.33)
-    self.glow:SetSize(newSize * 1.4, newSize * 1.4)
+    self.icon:SetSize(newSize * 0.86, newSize * 0.86)
+    self:SizeSkin(newSize)
+    self.glow:SetSize(newSize * 1.8, newSize * 1.8)
     self.glow:SetPoint("CENTER")
   end
   button:ApplySize(size)
@@ -88,10 +85,12 @@ local function AttachClicks(button, movable)
   end)
 
   button:SetScript("OnEnter", function(self)
+    self:HoverGlow(true)
     Tooltip(self, L.TITLE)
     if NS.DB().menuOnHover then NS.OpenMenu() end
   end)
-  button:SetScript("OnLeave", function()
+  button:SetScript("OnLeave", function(self)
+    self:HoverGlow(false)
     GameTooltip:Hide()
     NS.ScheduleAutoClose()
   end)
@@ -200,10 +199,12 @@ function NS.UpdateTimers()
       button.mhTime:SetText("")
       button.ohTime:SetText("")
     else
+      -- Voleur : le poison ; autres classes : la pierre / l'huile.
+      local mh, oh = NS.TrackedEnchant(state.mh), NS.TrackedEnchant(state.oh)
       button.mhTime:SetText(NS.HasWeapon(NS.SLOT_MAINHAND)
-        and Colorize(state.mh.remaining or 0, state.mh.active) or "")
+        and Colorize(mh.remaining or 0, mh.active) or "")
       button.ohTime:SetText(NS.HasWeapon(NS.SLOT_OFFHAND)
-        and Colorize(state.oh.remaining or 0, state.oh.active) or "")
+        and Colorize(oh.remaining or 0, oh.active) or "")
     end
   end
 end
@@ -267,9 +268,16 @@ end
 -- peuvent n'être disponibles qu'à ce moment-là.
 function NS.Boot()
   NS.dirty = true
+  -- Les réglages sont lus : on passe à la langue choisie, s'il y en a une.
+  if NS.ApplyLocale then NS.ApplyLocale(NS.DB().language) end
   -- La classe peut n'être connue qu'ici : on remet l'icône du guerrier.
-  if NS.IsWarrior() then
-    NS.ICON = NS.STONE_ICON
+  if not NS.UsesPoisons() then
+    if NS.IsWarrior() then
+      NS.ICON = NS.STONE_ICON
+    else
+      local _, oilIcon = NS.ItemInfo(NS.OIL_ITEM)
+      NS.ICON = oilIcon or NS.STONE_ICON
+    end
     free.icon:SetTexture(NS.ICON)
     minimap.icon:SetTexture(NS.ICON)
     if NS.aura and NS.aura.icon then NS.aura.icon:SetTexture(NS.ICON) end

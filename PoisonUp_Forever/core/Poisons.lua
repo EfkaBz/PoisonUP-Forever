@@ -42,7 +42,7 @@ NS.CATEGORIES = {
 
   -- Huiles : absentes de la version TBC, ajoutées ici parce qu'elles
   -- s'appliquent exactement de la même manière et servent aux hybrides.
-  OIL = { kind = "oil", items = { 3824, 3829, 20745, 20747, 20748, 20744, 20746, 20750, 20749 } },
+  OIL = { kind = "oil", items = { 3824, 3829, 20745, 20747, 20748, 20744, 20746, 20750, 20749, 22521, 22522, 23123 } },
 }
 
 -- Index inverse itemID -> { category, rank } construit une seule fois.

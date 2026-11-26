@@ -351,15 +351,30 @@ local function Fishing()
   return ok and classID == WEAPON_CLASS and subclassID == FISHING_POLE_SUBCLASS
 end
 
+-- Instance au sens large : donjon, raid, arène ou champ de bataille.
+-- Le type est vérifié en plus du booléen, qui n'est pas fiable sur tous les
+-- clients.
+local function InInstance()
+  if not IsInInstance then return false end
+  local inInstance, instanceType = IsInInstance()
+  if not inInstance then return false end
+  return instanceType == nil or instanceType ~= "none"
+end
+
+-- Filtres de contexte de l'onglet Timer (pêche, instance seulement), partagés
+-- par les alertes et les carrés d'arme : sans ça, les carrés s'affichaient
+-- partout malgré l'option « instance seulement ».
+function NS.WarningContextAllowed()
+  local db = NS.DB()
+  if db.ignoreFishing and Fishing() then return false end
+  if db.warnInstanceOnly and not InInstance() then return false end
+  return true
+end
+
 local function WarningsAllowed()
   local db = NS.DB()
   if not db.warnEnabled or not NS.IsEnabled() then return false end
-  if db.ignoreFishing and Fishing() then return false end
-  if db.warnInstanceOnly then
-    local inInstance = IsInInstance and IsInInstance()
-    if not inInstance then return false end
-  end
-  return true
+  return NS.WarningContextAllowed()
 end
 
 function NS.CheckEnchants()
@@ -372,7 +387,7 @@ function NS.CheckEnchants()
 
   for _, key in ipairs({ "mh", "oh" }) do
     local watched = (key == "mh") and db.checkMainHand or db.checkOffHand
-    local slot = state[key] or {}
+    local slot = NS.TrackedEnchant(state[key])
     if not watched or not NS.HasWeapon(SlotIndex(key)) then
       warned[key] = false
     elseif not slot.active then
@@ -408,7 +423,52 @@ NS.RegisterEvents(core, {
   "GET_ITEM_INFO_RECEIVED",
 })
 
-core:SetScript("OnEvent", function(_, event)
+-- Reconstruction regroupée : dehors, les événements d'objets et d'inventaire
+-- arrivent en rafales (joueurs alentour, infobulles d'autres addons). Une
+-- seule reconstruction par rafale au lieu d'une par événement.
+local refreshPending = false
+local function ScheduleRefresh()
+  NS.dirty = true
+  if refreshPending then return end
+  refreshPending = true
+  C_Timer.After(0.2, function()
+    refreshPending = false
+    if NS.RefreshSecureState then NS.RefreshSecureState() end
+  end)
+end
+
+-- Buffs du joueur : le carré Furie-des-vents suit le totem tout de suite au
+-- lieu d'attendre le prochain tic. Regroupé, UNIT_AURA part en rafale en combat.
+local auraPending = false
+local auraFrame = CreateFrame("Frame")
+if auraFrame.RegisterUnitEvent then
+  pcall(auraFrame.RegisterUnitEvent, auraFrame, "UNIT_AURA", "player")
+else
+  NS.RegisterEvents(auraFrame, { "UNIT_AURA" })
+end
+auraFrame:SetScript("OnEvent", function(_, _, unit)
+  if unit ~= "player" or auraPending then return end
+  if not NS.DB().showWindfuryIndicator then return end
+  auraPending = true
+  C_Timer.After(0.25, function()
+    auraPending = false
+    pcall(NS.CheckEnchants)
+    if NS.UpdateIndicators then pcall(NS.UpdateIndicators) end
+  end)
+end)
+
+core:SetScript("OnEvent", function(_, event, arg1)
+  -- Seul l'inventaire du joueur nous concerne : l'événement part aussi pour
+  -- les autres unités (groupe, joueurs proches).
+  if event == "UNIT_INVENTORY_CHANGED" and arg1 ~= "player" then return end
+  -- Seuls nos poisons / pierres / huiles nous intéressent ; et tant que
+  -- leurs noms manquent, le cache des noms de poison est à refaire.
+  if event == "GET_ITEM_INFO_RECEIVED" then
+    if not (arg1 and NS.ITEM_INDEX and NS.ITEM_INDEX[arg1]) then return end
+    if NS.ResetPoisonNames then NS.ResetPoisonNames() end
+    ScheduleRefresh()
+    return
+  end
   if event == "PLAYER_REGEN_DISABLED" then
     -- Option « Masquer automatiquement lors de l'entrée en combat ».
     if NS.DB().hideInCombat and NS.CloseMenu then NS.CloseMenu() end
@@ -435,7 +495,7 @@ core:SetScript("OnEvent", function(_, event)
   end
   -- PLAYER_REGEN_ENABLED compris : les attributs sécurisés n'ont pas pu être
   -- écrits pendant le combat, on rattrape le retard dès la sortie.
-  if NS.RefreshSecureState then NS.RefreshSecureState() end
+  ScheduleRefresh()
 end)
 
 -- Le temps restant n'émet aucun événement : il faut l'interroger. Une seconde
@@ -443,16 +503,100 @@ end)
 -- Chaque étape est protégée : une erreur dans l'une ne doit pas arrêter les
 -- autres (les carrés restaient figés). L'erreur est signalée une seule fois.
 local tickErrors = {}
+-- Mesure de chaque étape (/poisonup perf) : pire temps et moyenne, en ms.
+NS.perf = {}
+local clock = debugprofilestop
 local function SafeStep(name, fn)
   if type(fn) ~= "function" then return end
+  local start = clock and clock()
   local ok, err = pcall(fn)
+  if start then
+    local spent = clock() - start
+    local entry = NS.perf[name]
+    if not entry then
+      entry = { max = 0, total = 0, count = 0 }
+      NS.perf[name] = entry
+    end
+    entry.count = entry.count + 1
+    entry.total = entry.total + spent
+    if spent > entry.max then entry.max = spent end
+  end
   if not ok and not tickErrors[name] then
     tickErrors[name] = true
+    -- Gardée aussi dans les variables sauvegardées, lisible après un /reload.
+    local db = NS.DB()
+    db.tickErrors = db.tickErrors or {}
+    db.tickErrors[name] = tostring(err)
     NS.Print("|cffff4040erreur (" .. name .. ")|r : " .. tostring(err))
   end
 end
 
+-- Relevé Furie-des-vents écrit dans les variables sauvegardées (wfDiag) toutes
+-- les trois secondes quand un shaman est groupé : infobulle de la main droite,
+-- buffs du joueur et réponse brute de l'API, lisibles après un /reload.
+local diagClock = 0
+local function WindfuryDiag()
+  diagClock = diagClock + 1
+  if diagClock % 3 ~= 0 then return end
+  -- Toujours écrit (même sans shaman vu) : la classe des autres joueurs peut
+  -- elle aussi être secrète sur Forever.
+  local diag = { time = date and date("%H:%M:%S") or "", tooltip = {}, buffs = {}, group = {} }
+  NS.DB().wfDiag = diag
+  local raid = IsInRaid and IsInRaid()
+  for i = 1, raid and 40 or 4 do
+    local unit = (raid and "raid" or "party") .. i
+    if UnitExists(unit) then
+      local ok, _, class = pcall(UnitClass, unit)
+      diag.group[#diag.group + 1] = unit .. "=" .. (not ok and "erreur"
+        or (issecretvalue and issecretvalue(class)) and "secret" or tostring(class))
+    end
+  end
+  diag.shamanVu = NS.ShamanInGroup and tostring(NS.ShamanInGroup()) or "?"
+  if C_Secrets and C_Secrets.ShouldAurasBeSecret then
+    local ok, secret = pcall(C_Secrets.ShouldAurasBeSecret)
+    diag.aurasSecret = ok and (issecretvalue and issecretvalue(secret) and "secret" or tostring(secret)) or "erreur"
+  end
+  if C_TooltipInfo and C_TooltipInfo.GetInventoryItem then
+    local ok, data = pcall(C_TooltipInfo.GetInventoryItem, "player", NS.SLOT_MAINHAND)
+    if ok and type(data) == "table" then
+      for _, line in ipairs(data.lines or {}) do
+        if TooltipUtil and TooltipUtil.SurfaceArgs then pcall(TooltipUtil.SurfaceArgs, line) end
+        if type(line.leftText) == "string" and line.leftText ~= "" then
+          diag.tooltip[#diag.tooltip + 1] = line.leftText
+        end
+      end
+    end
+  end
+  -- Les auras sont secrètes sur Forever : on interroge chaque ID connu.
+  local function Plain(value)
+    if issecretvalue and issecretvalue(value) then return "secret" end
+    return tostring(value)
+  end
+  for _, spellID in ipairs(NS.WINDFURY_AURAS or {}) do
+    local ok, aura = pcall(C_UnitAuras.GetUnitAuraBySpellID, "player", spellID)
+    local text
+    if not ok then
+      text = "erreur"
+    elseif aura == nil then
+      text = "absent"
+    elseif issecretvalue and issecretvalue(aura) then
+      text = "secret"
+    else
+      text = ("présent | nom=%s | exp=%s"):format(Plain(aura.name), Plain(aura.expirationTime))
+    end
+    diag.buffs[#diag.buffs + 1] = spellID .. " : " .. text
+  end
+  local raw, parts = { pcall(GetWeaponEnchantInfo) }, {}
+  for index = 2, #raw do parts[#parts + 1] = tostring(raw[index]) end
+  diag.api = table.concat(parts, ", ")
+  local wf = NS.enchantState and NS.enchantState.mh and NS.enchantState.mh.windfury
+  diag.detected = wf and tostring(wf.active) .. " " .. tostring(wf.label) or "nil"
+end
+
 C_Timer.NewTicker(1, function()
+  -- Relevé de diagnostic : seulement en mode debug. Il interrogeait
+  -- l'infobulle, les auras et tout le raid en permanence, pour rien.
+  if NS.DB().debug then SafeStep("relevé furie-des-vents", WindfuryDiag) end
   SafeStep("enchantements", NS.CheckEnchants)
   SafeStep("minuteurs", NS.UpdateTimers)
   SafeStep("carrés d'arme", NS.UpdateIndicators)
