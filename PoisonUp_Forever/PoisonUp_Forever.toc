@@ -1,7 +1,7 @@
 ## Interface: 16001
 ## Title: PoisonUp (Forever)
 ## Author: Daeler
-## Version: 2.0.10
+## Version: 2.0.11
 ## SavedVariables: PoisonUpDB_Forever
 ## SavedVariablesPerCharacter: PoisonUpCharDB_Forever
 ## IconTexture: Interface\AddOns\PoisonUp_Forever\data\poisonup_icon

@@ -24,7 +24,7 @@ local PAGE_TOP, PAGE_BOTTOM = -104, 50
 
 -- La fenêtre n'est construite qu'à sa première ouverture : les réglages (dont
 -- la langue choisie) sont alors chargés, et rien n'est créé pour rien.
-local panel, Rebuild, ClosePanel
+local panel, ClosePanel
 
 -- Remplacée par la vraie version une fois la fenêtre construite.
 function NS.RefreshOptions() end
