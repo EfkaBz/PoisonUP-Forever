@@ -500,6 +500,40 @@ local function Build()
     Check(cursor, "warnChat", L.TIMER_CHAT, 16)
     Check(cursor, "warnError", L.TIMER_ERROR, 16)
     Check(cursor, "warnAura", L.TIMER_AURA, 16)
+    -- Alerte sonore : case à cocher, puis le son au choix (écouté à la
+    -- sélection).
+    Check(cursor, "warnSound", L.TIMER_SOUND, 16)
+    do
+      local label = W.Text(cursor.page, L.TIMER_SOUND_CHOICE, W.ORANGE)
+      label:SetPoint("TOPLEFT", cursor.page, "TOPLEFT", LEFT + 32, cursor.y - 5)
+      local dropdown = W.Dropdown(cursor.page, 140)
+      dropdown:SetPoint("TOPRIGHT", cursor.page, "TOPLEFT", PANEL_WIDTH - LEFT - 20, cursor.y)
+      label:SetPoint("RIGHT", dropdown, "LEFT", -8, 0)
+      label:SetJustifyH("LEFT")
+      cursor.y = cursor.y - 32
+
+      local function Text(key)
+        for _, sound in ipairs(NS.ALERT_SOUNDS) do
+          if sound.key == key then return L[sound.label] end
+        end
+        return L[NS.ALERT_SOUNDS[1].label]
+      end
+      dropdown:SetScript("OnClick", function(self)
+        local entries = {}
+        for _, sound in ipairs(NS.ALERT_SOUNDS) do
+          entries[#entries + 1] = { text = L[sound.label], value = sound.key }
+        end
+        self:SetEntries(entries, function(value)
+          NS.DB().warnSoundKey = value
+          self:SetSelection(Text(value))
+          NS.PlayAlertSound(value)
+        end)
+        self:Toggle()
+      end)
+      refreshers[#refreshers + 1] = function()
+        dropdown:SetSelection(Text(NS.DB().warnSoundKey))
+      end
+    end
     Check(cursor, "auraLocked", L.TIMER_AURA_LOCK, 16, function() NS.UpdateAura() end)
 
     Slider(cursor, "auraScale", L.OPT_SCALE, 0.1, 2, 0.1, function() NS.UpdateAura() end,

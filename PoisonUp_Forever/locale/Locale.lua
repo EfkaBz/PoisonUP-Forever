@@ -960,6 +960,64 @@ frFR.LANG_CHANGED    = "Langue changée : rechargez l'interface pour l'appliquer
 frFR.WARRIOR_SETS    = "Sets de pierre"
 frFR.WARRIOR_CLEARED = "tous les sets de pierre ont été effacés."
 
+-- Alerte sonore et alerte de charges basses. Le seuil de charges sert
+-- désormais aussi aux avertissements : son libellé le dit.
+local ALERT_TEXTS = {
+  enUS = {
+    WARN_CHARGES = "%s poison: only %d charges left.",
+    TIMER_SOUND = "Sound",
+    TIMER_SOUND_CHOICE = "Alert sound",
+    SOUND_DING = "Ding", SOUND_PING = "Ping", SOUND_BELL = "Bell", SOUND_WARNING = "Raid warning",
+    IND_WARN_CHARGES = "Warn (and fade the square) at this many charges or fewer",
+  },
+  frFR = {
+    WARN_CHARGES = "Poison de %s : plus que %d charges.",
+    TIMER_SOUND = "Son",
+    TIMER_SOUND_CHOICE = "Son d'alerte",
+    SOUND_DING = "Ding", SOUND_PING = "Ping", SOUND_BELL = "Cloche", SOUND_WARNING = "Avertissement de raid",
+    IND_WARN_CHARGES = "Prévenir (et estomper le carré) à ce nombre de charges ou moins",
+  },
+  deDE = {
+    WARN_CHARGES = "Gift %s: nur noch %d Aufladungen.",
+    TIMER_SOUND = "Ton",
+    TIMER_SOUND_CHOICE = "Warnton",
+    SOUND_DING = "Ding", SOUND_PING = "Ping", SOUND_BELL = "Glocke", SOUND_WARNING = "Schlachtzugswarnung",
+    IND_WARN_CHARGES = "Ab so vielen Aufladungen warnen (und Quadrat abblenden)",
+  },
+  esES = {
+    WARN_CHARGES = "Veneno de %s: solo quedan %d cargas.",
+    TIMER_SOUND = "Sonido",
+    TIMER_SOUND_CHOICE = "Sonido de alerta",
+    SOUND_DING = "Ding", SOUND_PING = "Ping", SOUND_BELL = "Campana", SOUND_WARNING = "Aviso de banda",
+    IND_WARN_CHARGES = "Avisar (y atenuar el cuadro) con estas cargas o menos",
+  },
+  itIT = {
+    WARN_CHARGES = "Veleno %s: restano solo %d cariche.",
+    TIMER_SOUND = "Suono",
+    TIMER_SOUND_CHOICE = "Suono di avviso",
+    SOUND_DING = "Ding", SOUND_PING = "Ping", SOUND_BELL = "Campana", SOUND_WARNING = "Avviso d'incursione",
+    IND_WARN_CHARGES = "Avvisa (e attenua il quadrato) con queste cariche o meno",
+  },
+  ptBR = {
+    WARN_CHARGES = "Veneno da %s: restam só %d cargas.",
+    TIMER_SOUND = "Som",
+    TIMER_SOUND_CHOICE = "Som de alerta",
+    SOUND_DING = "Ding", SOUND_PING = "Ping", SOUND_BELL = "Sino", SOUND_WARNING = "Aviso de raide",
+    IND_WARN_CHARGES = "Avisar (e esmaecer o quadrado) com estas cargas ou menos",
+  },
+  ruRU = {
+    WARN_CHARGES = "Яд (%s): осталось всего %d зарядов.",
+    TIMER_SOUND = "Звук",
+    TIMER_SOUND_CHOICE = "Звук оповещения",
+    SOUND_DING = "Динь", SOUND_PING = "Сигнал", SOUND_BELL = "Колокол", SOUND_WARNING = "Объявление рейду",
+    IND_WARN_CHARGES = "Предупреждать (и затемнять квадрат) при стольких зарядах или меньше",
+  },
+}
+for code, texts in pairs(ALERT_TEXTS) do
+  local target = TABLES[code]
+  for key, value in pairs(texts) do target[key] = value end
+end
+
 -- La même table L est gardée et remplie sur place : tous les fichiers qui ont
 -- fait « local L = NS.L » voient la nouvelle langue.
 local L = setmetatable({}, { __index = function(_, key) return key end })

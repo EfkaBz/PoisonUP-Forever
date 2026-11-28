@@ -313,6 +313,42 @@ end
 -- Ajout par rapport à la version TBC : au lieu d'un simple minuteur
 -- affiché, on prévient quand une arme tombe à sec ou approche de l'expiration.
 local warned = { mh = false, oh = false }
+-- Alerte « charges basses », séparée de celle du temps : elle se déclenche
+-- une fois quand les charges passent sous le seuil.
+local chargeWarned = { mh = false, oh = false }
+
+-- Délai de grâce après une connexion, un /reload ou un écran de chargement :
+-- l'état des armes (infobulle) n'est pas encore lisible, et l'addon prenait
+-- un poison bien présent pour expiré, d'où un avertissement fugace à chaque
+-- connexion. Rien n'est signalé pendant ces quelques secondes.
+local GRACE_SECONDS = 10
+local graceUntil = GetTime() + GRACE_SECONDS
+local graceFrame = CreateFrame("Frame")
+graceFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+graceFrame:SetScript("OnEvent", function()
+  graceUntil = GetTime() + GRACE_SECONDS
+  warned.mh, warned.oh = false, false
+  chargeWarned.mh, chargeWarned.oh = false, false
+end)
+
+-- Sons d'alerte au choix (onglet Timer). Les identifiants numériques servent
+-- de secours si la constante SOUNDKIT n'existe pas sur le client.
+NS.ALERT_SOUNDS = {
+  { key = "ding",    label = "SOUND_DING",    kit = "TELL_MESSAGE",          id = 3081 },
+  { key = "ping",    label = "SOUND_PING",    kit = "MAP_PING",              id = 3175 },
+  { key = "bell",    label = "SOUND_BELL",    kit = "ALARM_CLOCK_WARNING_3", id = 12889 },
+  { key = "warning", label = "SOUND_WARNING", kit = "RAID_WARNING",          id = 8959 },
+}
+
+function NS.PlayAlertSound(key)
+  key = key or NS.DB().warnSoundKey
+  local chosen = NS.ALERT_SOUNDS[1]
+  for _, sound in ipairs(NS.ALERT_SOUNDS) do
+    if sound.key == key then chosen = sound break end
+  end
+  local id = (SOUNDKIT and SOUNDKIT[chosen.kit]) or chosen.id
+  pcall(PlaySound, id, "Master")
+end
 
 local function SlotLabel(key)
   return (key == "mh") and L.MAINHAND or L.OFFHAND
@@ -331,6 +367,7 @@ function NS.Alert(message)
     UIErrorsFrame:AddMessage(message, 1, 0.3, 0.3, 1, 5)
   end
   if db.warnAura and NS.ShowAura then NS.ShowAura(message) end
+  if db.warnSound then NS.PlayAlertSound() end
   if NS.FlashButton then NS.FlashButton() end
 end
 
@@ -382,15 +419,20 @@ function NS.CheckEnchants()
   NS.enchantState = state
 
   if not WarningsAllowed() then return state end
+  if GetTime() < graceUntil then return state end
   local db = NS.DB()
   local threshold = (db.warnMinutes or 2) * 60
+  -- Même seuil que les carrés d'arme (liste de l'onglet Timer, 0 = jamais).
+  local chargeThreshold = db.indicatorWarnCharges or 0
 
   for _, key in ipairs({ "mh", "oh" }) do
     local watched = (key == "mh") and db.checkMainHand or db.checkOffHand
     local slot = NS.TrackedEnchant(state[key])
     if not watched or not NS.HasWeapon(SlotIndex(key)) then
       warned[key] = false
+      chargeWarned[key] = false
     elseif not slot.active then
+      chargeWarned[key] = false
       if not warned[key] then
         NS.Alert(string.format(L.WARN_EXPIRED, SlotLabel(key)))
         warned[key] = true
@@ -402,6 +444,15 @@ function NS.CheckEnchants()
       end
     else
       warned[key] = false
+      local charges = slot.charges
+      if charges and chargeThreshold > 0 and charges <= chargeThreshold then
+        if not chargeWarned[key] then
+          NS.Alert(string.format(L.WARN_CHARGES, SlotLabel(key), charges))
+          chargeWarned[key] = true
+        end
+      else
+        chargeWarned[key] = false
+      end
     end
   end
 
